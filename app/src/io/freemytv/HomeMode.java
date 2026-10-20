@@ -36,7 +36,10 @@ final class HomeMode {
     static final String PKG = "io.freemytv";
     static final String HOME_ACTIVITY = PKG + "/" + PKG + ".HomeActivity";
     static final String SETTINGS_ACTIVITY = PKG + "/" + PKG + ".SettingsActivity";
-    /** Our screensaver: on Android 11 the copy that runs in the main process (ScreensaverAlone, #10). */
+    /**
+     * Our screensaver: on Android 11 the copy that runs in the main process (ScreensaverAlone, #10). Used only with
+     * own_screensaver=true; otherwise the TV keeps its own (Google's Ambient mode) and nothing here touches it.
+     */
     static final String DREAM = PKG + "/" + PKG + (Build.VERSION.SDK_INT == 30 ? ".ScreensaverAlone" : ".Screensaver");
     static final String FREE = "free", ORIGINAL = "original";
 
@@ -63,6 +66,14 @@ final class HomeMode {
         "com.tcl.messagebox", "com.tcl.usercenter",                                   // TCL messages and account
         "com.tcl.exhibit", "com.tcl.esticker", "com.tcl.hotelmenu",                   // store demo, hotel menu
         "com.tcl.repairguide", "com.tcl.ocean.instructions", "com.tcl.logkit",        // repair guide, manual, logs
+        // Sony (BRAVIA, Android TV 10)
+        "com.sony.dtv.promos",                                                        // Sony promotions
+        "com.sony.dtv.sonyselect",                                                    // Sony Select (promoted apps)
+        "com.sony.dtv.demosupport", "com.sony.dtv.demosystemsupport",                 // store demo mode
+        "com.sony.dtv.multiscreendemo",                                               // store demo: multi-screen
+        "com.sonyericsson.idd.agent",                                                 // Sony usage reporting
+        "com.sony.dtv.tvlaunchercustomizer",                                          // Sony's tweaks to the stock home
+        "com.sony.dtv.tvlaunchercustomizer.overlay.apporder",                         // and its app order
     };
 
     /** The voice assistant, only with disable_assistant=true in config.properties (the mic button stops working). */
@@ -82,7 +93,23 @@ final class HomeMode {
         "org.droidtv", "org.droidtv.ambisvc", "org.droidtv.ui.strings", "org.droidtv.tv.packageinfo", "org.droidtv.icp",
         "org.droidtv.gel", "org.droidtv.eum", "com.mediatek.tv.service", "com.mediatek.tvinput", "com.mediatek.network",
         "com.mediatek.wwtv.tvcenter", "com.mediatek.wwtv.setupwizard", "com.mediatek.tv.factory",
-        "mediatek.factorymenu.ui", "com.tpv.xmic.ots.cms.client"));
+        "mediatek.factorymenu.ui", "com.tpv.xmic.ots.cms.client",
+        // Google: YouTube, Ambient mode (the TV's screensaver), voice search and the Assistant
+        "com.google.android.youtube.tv", "com.google.android.backdrop", "com.google.android.katniss",
+        "com.google.android.tv.assistant", "com.google.android.tv.btservices",
+        // Sony: picture, sound, inputs and live TV, BRAVIA Sync (HDMI-CEC), remote, setup, updates, system
+        "com.sony.dtv.panelsettings", "com.sony.dtv.configsettings", "com.sony.dtv.audiooutput",
+        "com.sony.dtv.acousticautocalibration", "com.sony.dtv.HomeTheatreControl", "com.sony.dtv.tvapi",
+        "com.sony.dtv.tvx", "com.sony.dtv.tvinput.external", "com.sony.dtv.tvinput.hardwaremanager",
+        "com.sony.dtv.tvinput.provider", "com.sony.dtv.tvinput.tuner", "com.sony.dtv.braviasyncmenu",
+        "com.sony.dtv.braviasyncservice", "com.sony.dtv.braviasyncsetting", "com.sony.dtv.remotecontrolsettings",
+        "com.sony.dtv.irblaster", "com.sony.dtv.irbservice", "com.uei.quicksetsdk.sony", "com.sony.dtv.quicksetup",
+        "com.sony.dtv.upgradesetup", "com.sony.dtv.systemupdate", "com.sony.dtv.update",
+        "com.sony.dtv.otaurlprovisioning", "com.sony.dtv.sonysystemservice", "com.sony.dtv.sonyvendorservice",
+        "com.sony.dtv.settingsprovider", "com.sony.dtv.networksettings", "com.sony.dtv.assistantadapter",
+        "com.sony.dtv.voicerecognitionconfirmation", "com.sony.dtv.imeproxy", "com.sony.dtv.devicecontrolservice",
+        "com.sony.dtv.connecteddevicesettings", "com.sony.dtv.countrysetting", "com.sony.dtv.parentalcontrolsettings",
+        "com.sony.dtv.timers", "com.sony.dtv.osdplanevisibilitymanager", "mtktvapi.agent", "com.mediatek.agent"));
 
     /** One switch at a time (jobs can overlap: a boot check and a button press). */
     private static final Object RUN = new Object();
@@ -205,18 +232,28 @@ final class HomeMode {
                 measureHomeTime(c, adb, ORIGINAL);
                 measureMemory(c, adb, ORIGINAL);
             }
-            busy(c, Ui.tr("Trocando o Início e a tela de descanso…", "Switching the home screen and screensaver…"));
+            busy(c, Config.OWN_SCREENSAVER ? Ui.tr("Trocando o Início e a tela de descanso…", "Switching the home screen and screensaver…")
+                    : Ui.tr("Trocando o Início…", "Switching the home screen…"));
+            // Ours becomes the home screen before anything is turned off, so the TV is never left without one.
             check(adb.shell("cmd package set-home-activity " + HOME_ACTIVITY), "Success",
                     Ui.tr("o Android não aceitou o novo Início", "Android didn't accept the new home screen"));
-            adb.shell("settings put secure screensaver_components " + DREAM);
+            if (Config.OWN_SCREENSAVER) {
+                adb.shell("settings put secure screensaver_components " + DREAM);
+                latest = state(c);
+                latest.put("screensaverSet", true);
+                save(c, latest);
+            }
             List<String> targets = targets(home, dream, setupHome);
             Set<String> disabled = new HashSet<>(stringList(state(c), "disabled"));
             Set<String> present = packages(adb, "");
+            // Apps already off before the switch aren't ours: they're left off, and Original leaves them off too.
+            Set<String> alreadyOff = packages(adb, "-d");
             int done = 0;
             for (String pkg : targets) {
                 done++;
                 busy(c, Ui.tr("Desligando apps (", "Turning off apps (") + done + "/" + targets.size() + ")…");
                 if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
+                if (alreadyOff.contains(pkg) && !disabled.contains(pkg)) continue;
                 String out = adb.shell("pm disable-user --user 0 " + pkg);
                 if (out.contains("disabled-user")) disabled.add(pkg);
                 else AppLog.w("could not turn off " + pkg + ": " + out.trim());
@@ -233,8 +270,8 @@ final class HomeMode {
                     AppLog.w("remote buttons service: " + e.getMessage());
                 }
             }
-            notice(c, Ui.tr("Free My TV ligado: Início e tela de descanso novos, " + disabled.size() + " apps desligados.",
-                    "Free My TV is on: new home screen and screensaver, " + disabled.size() + " apps turned off."));
+            notice(c, Ui.tr("Free My TV ligado: Início novo, " + disabled.size() + " apps desligados.",
+                    "Free My TV is on: new home screen, " + disabled.size() + " apps turned off."));
             busy(c, Ui.tr("Medindo o Free My TV…", "Measuring Free My TV…"));
             measureHomeTime(c, adb, FREE);
             done(c, null);
@@ -267,7 +304,8 @@ final class HomeMode {
             }
             busy(c, Ui.tr("Devolvendo o Início original…", "Restoring the original home screen…"));
             boolean homeOk = restoreHome(adb, home);
-            adb.shell("settings delete secure screensaver_components");
+            // Only undo a screensaver we set; the TV's own was never touched.
+            if (s.optBoolean("screensaverSet")) adb.shell("settings delete secure screensaver_components");
             try {
                 remoteService(c, adb, false);
             } catch (IOException e) {
@@ -275,7 +313,7 @@ final class HomeMode {
             }
             s = state(c);
             s.put("mode", ORIGINAL).put("since", System.currentTimeMillis()).put("homeReverted", false)
-                    .put("disabled", new JSONArray(failed));
+                    .put("disabled", new JSONArray(failed)).put("screensaverSet", false);
             save(c, s);
             if (failed.isEmpty() && homeOk) {
                 notice(c, Ui.tr("Modo original: Início, tela de descanso e apps de fábrica de volta.",
@@ -360,10 +398,8 @@ final class HomeMode {
                 Set<String> disabled = new HashSet<>(stringList(s, "disabled"));
                 for (String pkg : sorted(wanted)) {
                     if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
-                    if (disabledNow.contains(pkg)) {
-                        disabled.add(pkg);
-                        continue;
-                    }
+                    // Already off: either ours (on the list) or off before Free My TV (not ours to turn back on).
+                    if (disabledNow.contains(pkg)) continue;
                     if (adb.shell("pm disable-user --user 0 " + pkg).contains("disabled-user")) {
                         disabled.add(pkg);
                         fixed.add(pkg);
@@ -373,7 +409,7 @@ final class HomeMode {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
                     fixed.add(Ui.tr("o Início", "the home screen"));
                 }
-                if (!adb.shell("settings get secure screensaver_components").contains(DREAM)) {
+                if (Config.OWN_SCREENSAVER && !adb.shell("settings get secure screensaver_components").contains(DREAM)) {
                     adb.shell("settings put secure screensaver_components " + DREAM);
                     fixed.add(Ui.tr("a tela de descanso", "the screensaver"));
                 }
@@ -394,7 +430,7 @@ final class HomeMode {
     }
 
     /**
-     * What to turn off: the TV's own home screen and screensaver, Google TV's recovery home (when setupHome: the setup
+     * What to turn off: the TV's own home screen (and its screensaver, only with own_screensaver=true), Google TV's recovery home (when setupHome: the setup
      * app is one of the TV's home screens), and the lists above.
      */
     private static List<String> targets(String home, String dream, boolean setupHome) {
@@ -404,7 +440,7 @@ final class HomeMode {
         if (TV_LAUNCHER.equals(homePkg)) out.add(TV_RECOMMENDATIONS);
         if (setupHome) out.add(GOOGLE_SETUP);
         String dreamPkg = packageOf(dream);
-        if (dreamPkg != null && !dreamPkg.equals(PKG) && !dreamPkg.equals(homePkg)) out.add(dreamPkg);
+        if (Config.OWN_SCREENSAVER && dreamPkg != null && !dreamPkg.equals(PKG) && !dreamPkg.equals(homePkg)) out.add(dreamPkg);
         out.addAll(Arrays.asList(DEBLOAT));
         if (Config.DISABLE_ASSISTANT) out.addAll(Arrays.asList(ASSISTANT));
         return out;

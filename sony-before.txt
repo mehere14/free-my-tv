@@ -1,0 +1,7 @@
+# Sony BRAVIA (192.168.2.14) before Free My TV, 2026-10-20 16:47
+# To undo by hand from this computer: see 'Undo' in README.md.
+home_activity=com.google.android.tvlauncher/.MainActivity
+screensaver_components=com.google.android.backdrop/.Backdrop
+screensaver_default=com.google.android.backdrop/.Backdrop
+screensaver_enabled=1
+already_disabled=com.android.vending com.google.android.youtube.tv com.google.android.youtube.tvmusic com.sony.dtv.b2b.softap com.sony.dtv.b2b.vendorprotocol screnmirroring.com 

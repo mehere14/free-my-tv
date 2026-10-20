@@ -18,7 +18,6 @@ final class Spanish {
             case "No weather data right now.": return "No hay datos del clima ahora.";
             case "Sunrise ": return "Amanecer ";
             case "Sunset ": return "Atardecer ";
-            case "Crypto": return "Cripto";
             case "24h change": return "variación en 24 h";
             case "For You": return "Para ti";
             case "Couldn't open ": return "No se pudo abrir ";
@@ -27,7 +26,6 @@ final class Spanish {
             case " of 3": return " de 3";
             case "Dollar": return "Dólar";
             case "Series": return "Serie";
-            case "prices from ": return "precios de ";
             case "Starting…": return "Iniciando…";
             case "Original": return "Original";
             case "Home Screen, ": return "Pantalla de inicio, ";
@@ -53,6 +51,10 @@ final class Spanish {
             case "NOTICES": return "AVISOS";
             case "None yet.": return "Ninguno todavía.";
             case "No ads, with the new screensaver": return "Sin anuncios, con el nuevo protector de pantalla";
+            case "No ads, your screensaver stays": return "Sin anuncios, tu protector de pantalla se queda";
+            case "no ads, your screensaver stays": return "sin anuncios, tu protector de pantalla se queda";
+            case "Your TV's home screen, without the ads": return "La pantalla de inicio de tu TV, sin anuncios";
+            case "Switching the home screen…": return "Cambiando la pantalla de inicio…";
             case "The TV's factory home screen": return "La pantalla de inicio de fábrica del TV";
             case "Switching takes a few seconds; the screen blinks while it measures.": return "El cambio tarda unos segundos; la pantalla parpadea durante las mediciones.";
             case "now": return "ahora";
@@ -87,7 +89,6 @@ final class Spanish {
             case "Light": return "Claro";
             case "Dark": return "Oscuro";
             case "Weather widget": return "Widget del clima";
-            case "Quotes widget": return "Widget de cotizaciones";
             case "On": return "Activado";
             case "Off": return "Desactivado";
             case "Shelf": return "Estante";
@@ -106,9 +107,9 @@ final class Spanish {
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Disney y Globoplay: el propio TV controla esos botones.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Estos son los botones del control de TCL: en este TV, los botones funcionan como siempre.";
             default:
-                if (english.startsWith("Free My TV is on: new home screen and screensaver, ")) {
-                    return "Free My TV está activo: nueva pantalla de inicio y protector, "
-                            + english.substring("Free My TV is on: new home screen and screensaver, ".length()).replace(" apps turned off.", " apps desactivadas.");
+                if (english.startsWith("Free My TV is on: new home screen, ")) {
+                    return "Free My TV está activo: nueva pantalla de inicio, "
+                            + english.substring("Free My TV is on: new home screen, ".length()).replace(" apps turned off.", " apps desactivadas.");
                 }
                 if (english.startsWith("On · ")) {
                     return "Activas · " + english.substring(5).replace(" titles from the TV's apps, 3 new ones every hour.",

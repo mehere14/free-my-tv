@@ -1,9 +1,9 @@
 /*
  * The home screen for web-app TVs (LG webOS, Samsung Tizen), with the Android app's design and behavior (HomeView):
  *  - top: the "For You" title and the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
- *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
+ *    HDMI Inputs, Settings);
  *  - three picks for this hour in the selected tab; the background is the first one's photo, blurred and almost white;
- *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
+ *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather); ↑ or Back closes it;
  *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
  */
@@ -26,21 +26,6 @@
     s.style.maskImage = 'url(symbols/' + name + '.png)';
     if (size) { s.style.width = size + 'px'; s.style.height = size + 'px'; }
     return s;
-  }
-
-  function coin(i, parent) {
-    var c = window.COINS && window.COINS[i];
-    if (!c) return;
-    var ns = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 32 32');
-    for (var k = 0; k < c.length; k++) {
-      var p = document.createElementNS(ns, 'path');
-      p.setAttribute('d', c[k]);
-      p.setAttribute('fill-rule', 'evenodd');
-      svg.appendChild(p);
-    }
-    parent.appendChild(svg);
   }
 
   function hasClass(e, c) { return (' ' + e.className + ' ').indexOf(' ' + c + ' ') >= 0; }
@@ -147,7 +132,6 @@
     }
     list = $('buttons').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
@@ -187,7 +171,7 @@
     return (r.left + r.right) / 2;
   }
 
-  // MARK: - Top: title, tabs, buttons, quotes
+  // MARK: - Top: title, tabs, buttons
 
   var TAB_KIND = [null, 'movie', 'tv'];
 
@@ -210,16 +194,6 @@
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
-    }
-  }
-
-  function renderQuotes() {
-    var q = $('quotes'), coins = Data.activeCoins();
-    q.innerHTML = '';
-    for (var i = 0; i < coins.length; i++) {
-      var item = el('span', 'q', q);
-      coin(coins[i], item);
-      el('span', '', item, Data.compact(Data.prices[coins[i]]));
     }
   }
 
@@ -295,7 +269,6 @@
     platter.style.display = n ? '' : 'none';
     platter.style.left = (left - pad) + 'px';
     platter.style.width = (width + 2 * pad) + 'px';
-    $('quotes').style.right = (1920 - left - width) + 'px';
     var tiles = $('tiles');
     tiles.innerHTML = '';
     for (var i = 0; i < n; i++) {
@@ -349,22 +322,12 @@
     var d = $('drawer');
     var old = d.querySelectorAll('.panel');
     for (var o = 0; o < old.length; o++) d.removeChild(old[o]);
-    var wx = Prefs.weather(), coins = Data.activeCoins(), qt = coins.length > 0;
-    var split = 80 + 1760 * 0.585;
-    if (wx) {
+    if (Prefs.weather()) {
       var w = el('div', 'panel glass', d);
       w.id = 'weather';
       w.style.left = '80px';
-      w.style.width = ((qt ? split - 16 : 1840) - 80) + 'px';
+      w.style.width = (1840 - 80) + 'px';
       renderWeather(w);
-    }
-    if (qt) {
-      var q = el('div', 'panel glass', d);
-      q.id = 'prices';
-      var left = wx ? split + 16 : 80;
-      q.style.left = left + 'px';
-      q.style.width = (1840 - left) + 'px';
-      renderPrices(q, coins);
     }
   }
 
@@ -394,21 +357,6 @@
     var sun = el('div', 'sun', card);
     if (w.sunrise) { var a = el('span', '', sun); sym('sunrise', a); a.appendChild(document.createTextNode(tr('Nascer ', 'Sunrise ', 'Amanecer ') + Data.time(w.sunrise))); }
     if (w.sunset) { var b = el('span', '', sun); sym('sunset', b); b.appendChild(document.createTextNode(tr('Pôr do sol ', 'Sunset ', 'Atardecer ') + Data.time(w.sunset))); }
-  }
-
-  function renderPrices(card, coins) {
-    el('div', 'head', card, tr('Cotações', 'Crypto', 'Cripto'));
-    var stale = Data.staleness(Data.pricesAt, 5 * 60000);
-    el('div', 'side', card, stale || tr('variação em 24 h', '24h change', 'variación en 24 h'));
-    for (var j = 0; j < coins.length; j++) {
-      var i = coins[j], row = el('div', 'coin', card);
-      row.style.top = (86 + 52 * j) + 'px';
-      coin(i, row);
-      el('span', 'n', row, Data.coinName(i));
-      el('span', 'p', row, Data.money(Data.prices[i]));
-      var ch = Data.changes[i];
-      if (!isNaN(ch)) el('span', 'c ' + (ch >= 0 ? 'up' : 'down'), row, Data.change(ch));
-    }
   }
 
   function openDrawer() {
@@ -472,18 +420,8 @@
       {label: tr('Tema', 'Theme', 'Tema'), value: theme === 'light' ? tr('Claro', 'Light', 'Claro') : theme === 'dark' ? tr('Escuro', 'Dark', 'Oscuro') : auto,
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
       {label: tr('Widget do clima', 'Weather widget', 'Widget del clima'), toggle: Prefs.weather(),
-        step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
-      {label: tr('Widget de cotações', 'Quotes widget', 'Widget de cotizaciones'), toggle: Prefs.quotes(),
-        step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
+        step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }}
     ];
-    var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dólar', 'Dollar', 'Dólar')];
-    var count = Data.currency === 'BRL' ? 4 : 3;
-    for (var i = 0; i < count; i++) {
-      (function (i) {
-        rows.push({label: names[i], toggle: Prefs.quotes() && Prefs.coin(i), dim: !Prefs.quotes(),
-          step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
-      })(i);
-    }
     rows.push({label: tr('Prateleira', 'Shelf', 'Estante'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('Ajustes da TV', 'TV Settings', 'Ajustes del TV'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
@@ -820,7 +758,6 @@
 
   function renderAll() {
     renderTop();
-    renderQuotes();
     cards = [];
     renderCards();
     renderShelf();
@@ -854,7 +791,6 @@
   }
 
   Data.onChange(function () {
-    renderQuotes();
     renderCards();
     renderPanels();
     checkNight();

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sony Home Mockup</title>
+<link rel="preload" href="/docs/assets/fonts/InterVariable.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+<link rel="preconnect" href="https://geo.weather.gc.ca" crossorigin>
+<link rel="preconnect" href="https://a.basemaps.cartocdn.com">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div id="viewport">
+<div id="tv">
+  <div class="sky day"></div>
+  <div class="sky night"></div>
+
+  <!-- Home -->
+  <section id="home" data-layer="home">
+    <h1 id="greeting">Good afternoon</h1>
+    <div id="clock" class="num"></div>
+    <button class="round" id="btn-settings" data-f data-action="settings" data-tip="Home settings"><i class="sym" style="--s:url(/app/assets/symbols/settings.png)"></i></button>
+    <button class="round" id="btn-tv" data-f data-action="tv-settings" data-tip="TV settings"><i class="sym" style="--s:url(/app/assets/symbols/tv_settings.png)"></i></button>
+    <button class="round profile" id="btn-profile" data-f data-action="profile" data-tip="Profile"><span class="avatar">M</span></button>
+
+    <div id="searchbar" class="glass">
+      <div class="field" id="field" data-f data-action="type">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.25 4.24a1 1 0 0 1-1.42 1.42l-4.24-4.25A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg>
+        <input id="q" type="text" autocomplete="off" spellcheck="false" tabindex="-1" placeholder="Search or ask anything">
+      </div>
+      <button class="mic" id="mic" data-f data-action="mic" aria-label="Voice search">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 2.5a3.5 3.5 0 0 1 3.5 3.5v6a3.5 3.5 0 1 1-7 0V6A3.5 3.5 0 0 1 12 2.5ZM6 11a1 1 0 0 1 1 1 5 5 0 0 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 1 1-2 0v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 1-1Z"/></svg>
+      </button>
+    </div>
+    <button id="ask" data-f data-action="ask"><i class="sym" style="--s:url(/app/assets/symbols/sparkles.png)"></i><span>Ask AI</span></button>
+
+    <div class="card wide" id="card-weather" data-f data-action="radar">
+      <div class="face glass-card">
+        <div class="wx-now">
+          <div class="cap" id="wx-city">Etobicoke</div>
+          <div class="wx-big"><i class="sym" id="wx-icon"></i><span class="num" id="wx-temp">--°</span></div>
+          <div class="wx-cond" id="wx-cond">Loading weather…</div>
+          <div class="wx-hl num" id="wx-hl"></div>
+        </div>
+        <div class="wx-split"></div>
+        <div class="wx-hours" id="wx-hours"></div>
+        <div class="wx-sun num" id="wx-sun"></div>
+      </div>
+      <div class="label">Weather</div>
+      <div class="meta" id="wx-meta">Loading · OK for radar</div>
+    </div>
+
+    <div class="card tall" id="card-radar" data-f data-action="radar">
+      <div class="face photo"><div class="map" id="thumb"></div><div class="you"></div></div>
+      <div class="label">Radar</div>
+      <div class="meta" id="thumb-meta">Toronto · last hour</div>
+    </div>
+
+    <!-- The right slot: the time on top, Plan a route below (the two fill one tall card's height) -->
+    <div class="box" id="box-time">
+      <div class="face glass-card time-box">
+        <div class="box-clock num" id="box-clock"></div>
+        <div class="box-date" id="box-date"></div>
+      </div>
+    </div>
+    <div class="card box" id="card-plan" data-f data-action="plan">
+      <div class="face glass-card plan-box">
+        <span class="plan-icon"><svg viewBox="0 0 24 24"><path d="M21.7 11.3 12.7 2.3a1 1 0 0 0-1.4 0l-9 9a1 1 0 0 0 0 1.4l9 9a1 1 0 0 0 1.4 0l9-9a1 1 0 0 0 0-1.4ZM14 14.5V12h-4v3H8v-4a1 1 0 0 1 1-1h5V7.5l3.5 3.5-3.5 3.5Z"/></svg></span>
+        <div class="plan-title">Plan a route</div>
+        <div class="plan-sub">Say where to go</div>
+      </div>
+    </div>
+
+    <div id="shelf"><div class="platter glass"></div><div class="tiles" id="tiles"></div></div>
+  </section>
+
+  <!-- Ask AI answer -->
+  <section id="answer" class="overlay" data-layer="answer" hidden>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="ai-chip"><i class="sym" style="--s:url(/app/assets/symbols/sparkles.png)"></i>Ask AI<span id="ai-model"></span></div>
+      <h2 id="ai-q"></h2>
+      <div id="ai-body" data-f data-action="none" tabindex="-1"></div>
+      <div id="ai-sources"></div>
+      <div id="ai-actions"></div>
+      <div class="hint">Back to close</div>
+    </div>
+  </section>
+
+  <!-- Radar -->
+  <section id="radar" class="overlay" data-layer="radar" hidden>
+    <div class="map" id="radar-map"></div>
+    <div class="you big"></div>
+    <div class="radar-vignette"></div>
+    <div class="radar-top glass">
+      <div class="cap" id="radar-place">Radar</div>
+      <div class="radar-time num" id="radar-time">--:--</div>
+      <div class="radar-ago" id="radar-ago">Loading…</div>
+      <div class="frames" id="radar-frames"></div>
+    </div>
+    <div class="radar-legend glass" id="radar-legend"></div>
+    <div class="radar-foot"><span id="radar-status"></span><span>← → step · OK pause · Back close</span></div>
+    <div class="radar-credit" id="radar-credit"></div>
+    <div data-f data-action="radar-toggle" id="radar-focus" class="ghost"></div>
+  </section>
+
+  <!-- Route planner: say or type a place, pick one of Google Maps' matches, see the drive -->
+  <section id="plan" class="overlay" data-layer="plan" hidden>
+    <div class="map" id="plan-map"></div>
+    <svg id="plan-svg" viewBox="0 0 960 540" aria-hidden="true"></svg>
+    <div class="you big"></div>
+    <div class="plan-panel glass">
+      <div class="cap">Plan a route from <span id="plan-home">home</span></div>
+      <div class="plan-search">
+        <div class="field plan-field" id="plan-field" data-f data-action="plan-type">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.25 4.24a1 1 0 0 1-1.42 1.42l-4.24-4.25A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg>
+          <input id="plan-q" type="text" autocomplete="off" spellcheck="false" tabindex="-1" placeholder="Search Google Maps">
+        </div>
+        <button class="mic plan-mic" id="plan-mic" data-f data-action="plan-voice" aria-label="Say a place">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 2.5a3.5 3.5 0 0 1 3.5 3.5v6a3.5 3.5 0 1 1-7 0V6A3.5 3.5 0 0 1 12 2.5ZM6 11a1 1 0 0 1 1 1 5 5 0 0 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 1 1-2 0v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 1-1Z"/></svg>
+        </button>
+      </div>
+      <div id="plan-body"><div class="plan-hint">Press OK on the mic and say a place, like “Costco” or “Wasaga Beach”.</div></div>
+      <div class="trip-foot" id="plan-foot">Places and routes: Google Maps · live traffic</div>
+    </div>
+    <div class="radar-credit" id="trip-credit"></div>
+  </section>
+
+  <!-- Settings -->
+  <section id="settings" class="overlay" data-layer="settings" hidden>
+    <div class="scrim"></div>
+    <div class="panel">
+      <h2>Settings</h2>
+      <div class="list" id="set-list">
+        <div class="group">Ask AI</div>
+        <div class="row" data-f data-action="edit-key"><span>Gemini API key</span><span class="val num" id="set-key">Not set</span><input id="in-key" type="password" autocomplete="off" tabindex="-1" hidden></div>
+        <div class="row" data-f data-action="edit-model"><span>Model</span><span class="val" id="set-model">gemini-flash-latest</span><input id="in-model" type="text" autocomplete="off" spellcheck="false" tabindex="-1" hidden></div>
+        <div class="row" data-f data-action="toggle-grounding"><span>Google Search grounding</span><span class="switch on" id="set-grounding"></span></div>
+        <div class="row" data-f data-action="test"><span>Test connection</span><span class="val" id="set-test"></span></div>
+        <div class="note">From your laptop, set the key without typing it on the remote: the exact <span class="num">adb</span> command comes with Phase 4.</div>
+        <div class="group">Home</div>
+        <div class="row" data-f data-action="edit-postal"><span>Postal code</span><span class="val num" id="set-postal">Not set</span><input id="in-postal" type="text" autocomplete="off" spellcheck="false" tabindex="-1" hidden></div>
+        <div class="note">Sets your city for the weather, the radar and trips (Google Geocoding API).</div>
+        <div class="group">Radar map</div>
+        <div class="row info"><span>Map tiles</span><span class="val num" id="set-maps">Free map (no key)</span></div>
+        <div class="note">Set maps_provider and maps_key in config.properties on your laptop, then reload this page.</div>
+        <div class="group">Home screen apps <span id="set-count" class="num"></span></div>
+        <div id="set-apps"></div>
+        <div class="note">Sample list. Phase 1 replaces it with the apps installed on your Sony.</div>
+        <div class="group">Home screen</div>
+        <div class="row" data-f data-action="revert"><span>Go back to Sony's home screen</span><span class="val">Original</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="listening" class="overlay" hidden><div class="scrim"></div><div class="orb"></div><div class="listen-text" id="listen-text">Listening…</div></div>
+  <div id="toast" class="glass" hidden></div>
+</div>
+</div>
+<div id="help">
+  <b>Remote:</b> arrows move · Enter = OK · Esc = Back · <b>N</b> day/night · <b>2</b> toggle 2× / fit
+  <span id="scale"></span>
+</div>
+<script src="mockup.js"></script>
+</body>
+</html>

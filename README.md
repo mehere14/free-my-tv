@@ -11,7 +11,7 @@ Open source. Built with Claude Code. One button to undo.
 
 [**freemytv.io**](https://freemytv.io) · [Install](#install) · [LG TVs](#lg-tvs-webos) · [Samsung TVs](#samsung-tvs-tizen) · [Any TV](#any-tv) · [Make it yours](#make-it-yours)
 
-<img src=".github/preview.webp" width="880" alt="The Free My TV home screen: a glass shelf of apps, trending picks, and a drawer with the weather and crypto prices">
+<img src=".github/preview.webp" width="880" alt="The Free My TV home screen: a glass shelf of apps, trending picks, and a drawer with the weather">
 
 </div>
 
@@ -20,11 +20,11 @@ Open source. Built with Claude Code. One button to undo.
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
 - **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
 - **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
-- **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
+- **The weather, one press away.** The hour-by-hour forecast, sunrise and sunset.
 - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
-- **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
+- **A screensaver to match, if you want it.** Full-screen photos of the picks with a big glass clock (`own_screensaver=true`); by default the TV keeps its own, like Google's Ambient mode.
 - **Fast.** 60 fps, every frame in 16.6 ms, on the TV's own chip. The home screen uses 96 MB of memory instead of 242 MB (−60%).<br><sub>Measured on a 98″ TCL Google TV running Android 14.</sub>
-- **Set up on the TV.** Language, temperature, theme, the weather and prices cards, which coins, and the apps on the shelf, in Free My TV's own settings.
+- **Set up on the TV.** Language, temperature, theme, the weather card and the apps on the shelf, in Free My TV's own settings.
 - **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
 
 ## Install
@@ -71,7 +71,7 @@ About ten minutes. You need a Google TV or Android TV (Android 9 or newer) and a
 
 ## LG TVs (webOS)
 
-The same home screen as an LG app: the picks, the glass shelf with your apps, the drawer with inputs, weather and prices, day and night, Home Settings and the shelf editor. It installs through LG's own Developer Mode, with nothing rooted or changed on the TV. LG's home screen stays where it is, and Free My TV is one press of a number key away.
+The same home screen as an LG app: the picks, the glass shelf with your apps, the drawer with inputs and weather, day and night, Home Settings and the shelf editor. It installs through LG's own Developer Mode, with nothing rooted or changed on the TV. LG's home screen stays where it is, and Free My TV is one press of a number key away.
 
 You need an LG TV (webOS 3 or newer) and a computer on the same Wi-Fi, with Python 3.
 
@@ -93,7 +93,7 @@ Developer Mode lasts about 40 days: open the Developer Mode app now and then and
 
 ## Samsung TVs (Tizen)
 
-The same home screen as a Samsung app, with everything the LG one has: the picks, the shelf, the drawer with the inputs, the weather and the prices, day and night, and its own settings. It installs through Samsung's own Developer Mode, with nothing rooted or changed on the TV, and Samsung's home screen stays where it is.
+The same home screen as a Samsung app, with everything the LG one has: the picks, the shelf, the drawer with the inputs and the weather, day and night, and its own settings. It installs through Samsung's own Developer Mode, with nothing rooted or changed on the TV, and Samsung's home screen stays where it is.
 
 You need a Samsung TV from 2017 or newer (Tizen 3+) and a computer on the same Wi-Fi.
 
@@ -115,9 +115,8 @@ The first values come from `config.properties`, created by the first build (Goog
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |
 | `language` | `auto` (follows the TV), `en`, `es` or `pt` | `auto` |
-| `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
-| `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
+| `own_screensaver` | Make Free My TV the screensaver too (otherwise the TV keeps its own, like Ambient mode) | `false` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
 
 Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
@@ -128,16 +127,39 @@ Free, and it takes two minutes: create an account at [themoviedb.org](https://ww
 
 ## Going back
 
-On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
+On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app it turned off come back exactly as they were (apps that were already off before stay off). If the new home screen ever crashes three times in five minutes, it switches back by itself.
 
 To remove it for good, switch to *Original* first, then uninstall *Free My TV* (Settings → Apps).
 
+### Rebuild, reinstall, undo (from your computer)
+
+```bash
+./build.sh                                   # after changing config.properties or the code
+adb connect 192.168.2.14:5555                # your TV's IP; "Always allow" on the TV the first time
+adb install -r FreeMyTV.apk                  # an update keeps your settings and the switch
+```
+
+Keep `freemytv.keystore`: an update signed with another key won't install (you'd have to switch to *Original* and uninstall first).
+
+**Undo without the app** (it crashed, or was uninstalled while switched): turn the apps back on, then give the home screen back. The TV's original values, recorded before the first switch, are in `sony-before.txt`.
+
+```bash
+for p in com.google.android.tvlauncher com.google.android.tvrecommendations com.google.android.play.games \
+  com.sony.dtv.promos com.sony.dtv.sonyselect com.sony.dtv.demosupport com.sony.dtv.demosystemsupport \
+  com.sony.dtv.multiscreendemo com.sonyericsson.idd.agent com.sony.dtv.tvlaunchercustomizer \
+  com.sony.dtv.tvlaunchercustomizer.overlay.apporder; do adb shell pm enable $p; done
+adb shell cmd package set-home-activity com.google.android.tvlauncher/.MainActivity
+```
+
+The screensaver needs nothing: with `own_screensaver=false` the app never changes it.
+
 ## What it changes
 
-- It becomes the home screen and the screensaver.
+- It becomes the home screen (and the screensaver too, only with `own_screensaver=true`).
 - It turns off, without uninstalling:
-  - the stock home screen and screensaver;
+  - the stock home screen (and its screensaver, only with `own_screensaver=true`);
   - Google TV's recovery home, Play Games and YouTube Music;
+  - on Sony TVs, Sony's promotions, Sony Select, the store demo, usage reporting and the stock home screen's customizer;
   - on TCL TVs, the TCL Channel, messages, store demo, hotel menu, manuals, mirroring and logging apps;
   - Google Assistant, only with `disable_assistant=true`.
 - On TCL TVs, the remote's Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons. Pick what each one opens in *Free My TV* → *Remote Buttons*; *Original* turns the service off.
@@ -164,7 +186,6 @@ Free My TV runs on Google TV and Android TV: TCL, Sony, Hisense, Philips, Xiaomi
 It's your code, and Claude Code finds its way around it. Try:
 
 - *"Add Crunchyroll to the shelf."*
-- *"Show the prices in euros."*
 - *"Add Spanish."*
 - *"Switch to the night look an hour after sunset."*
 
@@ -175,7 +196,7 @@ It's your code, and Claude Code finds its way around it. Try:
 - **Drawn by hand on one Canvas**, with Android 13 shaders for the frosted glass and the sky (plain fills on Android 9 to 12, with lighter shadows and no GPU layers on 9 to 11 for their older GPUs).
 - **A safety net.** A watchdog in a separate process brings back the stock home screen after three crashes in five minutes, and a boot check keeps your choice after TV updates.
 - **On LG and Samsung, the same design in plain HTML, CSS and JavaScript** ([`web/`](web)), written for the Chromium of older TVs, with no frameworks. [`webos/build.py`](webos/build.py) packs it with `config.properties` into an `.ipk` without LG's tools, and [`webos/install.py`](webos/install.py) installs it through Developer Mode; on LG it lists and opens apps through the TV's own service bus (Luna), as LG's launcher does. [`tizen/build.py`](tizen/build.py) packs the same app into a Samsung `.wgt`, which uses Tizen's web APIs for the apps and the inputs. To preview it on a computer: `python3 webos/build.py --preview`, then open `out/webos/index.html` (a stand-in lists sample apps).
-- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), and optionally Binance (24-hour prices when `show_crypto=true`).
+- **Data** from TMDB (trending titles, new releases and which app streams what in your country), and Open-Meteo (forecast, sunrise and sunset).
 
 | File | What it is |
 |---|---|
@@ -183,7 +204,7 @@ It's your code, and Claude Code finds its way around it. Try:
 | [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) | Switching between Free My TV and Original |
 | [`Adb.java`](app/src/io/freemytv/Adb.java) | The TV's own ADB, from inside the TV |
 | [`Recs.java`](app/src/io/freemytv/Recs.java) | The picks (TMDB) |
-| [`HomeData.java`](app/src/io/freemytv/HomeData.java) | Weather and prices |
+| [`HomeData.java`](app/src/io/freemytv/HomeData.java) | Weather |
 | [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) | The shelf, inputs and All Apps |
 | [`DreamView.java`](app/src/io/freemytv/DreamView.java) | The screensaver |
 | [`SettingsActivity.java`](app/src/io/freemytv/SettingsActivity.java) | The settings screen (the app's icon) |
@@ -199,7 +220,7 @@ The website ([freemytv.io](https://freemytv.io)) is in [`docs/`](docs): plain HT
 
 ## Privacy
 
-No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with the coordinates you set, or your time zone's main city), and Binance only when `show_crypto=true`. Your settings stay on your computer and your TV.
+No accounts, no analytics, no tracking. The app talks to TMDB and Open-Meteo (with the coordinates you set, or your time zone's main city). Your settings stay on your computer and your TV.
 
 ## Credits
 
@@ -207,8 +228,8 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 - The LG version builds on what [@danielthejoker18](https://github.com/danielthejoker18) found in [FreeMyTvWebOS](https://github.com/danielthejoker18/FreeMyTvWebOS) (MIT): installing through Developer Mode and opening apps through the TV's service bus.
 - On Samsung TVs it installs with [TizenBrew Installer](https://github.com/reisxd/TizenBrewInstaller) by [@reisxd](https://github.com/reisxd).
 - This product uses the TMDB API but is not endorsed or certified by [TMDB](https://www.themoviedb.org/).
-- Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Prices from the [Binance](https://www.binance.com/) public API.
-- Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1). Coin logos: [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons) (CC0).
+- Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0).
+- Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1).
 - Not affiliated with Google, TCL, LG, Samsung or any streaming service. App names and logos belong to their owners.
 
 ## License

@@ -75,16 +75,10 @@ final class Prefs {
     static String latitude() { return Config.LATITUDE; }
     static String longitude() { return Config.LONGITUDE; }
 
-    // MARK: - Widgets and coins
+    // MARK: - Widgets
 
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
-
-    static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
-    static void setQuotes(boolean on) { put("quotes", on); }
-
-    static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
-    static void setCoin(int i, boolean on) { put("coin" + i, on); }
 
     // MARK: - Shelf
 
