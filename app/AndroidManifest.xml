@@ -5,6 +5,10 @@
     android:versionName="1.0">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Hold-to-talk in Ask AI and Plan a route (asked the first time you use it). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Only to tell you when the remote (this TV's only microphone) isn't paired. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- After the TV boots (and after a TV update), checks that Free My TV mode is still as you left it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

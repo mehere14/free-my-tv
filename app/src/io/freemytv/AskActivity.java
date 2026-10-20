@@ -33,14 +33,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Ask AI, full screen: the question (said through Google's voice input, or typed with the TV keyboard), then
+ * Ask AI, full screen: the question (said holding the remote's mic button, or typed with the TV keyboard), then
  * Gemini's answer in large type, its sources when grounding is on, and what to do next. Back closes it. Built from
  * plain views (the TV keyboard, focus and scrolling come with them), in the home screen's fonts and colors.
  */
 public final class AskActivity extends Activity {
     static final String MODE = "mode", QUESTION = "q";
     static final String VOICE = "voice", TYPE = "type";
-    private static final int VOICE_INPUT = 7;
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -73,6 +72,7 @@ public final class AskActivity extends Activity {
 
     @Override protected void onDestroy() {
         asking++;
+        voice.destroy();
         super.onDestroy();
     }
 
@@ -302,36 +302,39 @@ public final class AskActivity extends Activity {
         return b;
     }
 
-    // MARK: - Voice (Google's voice input screen: it turns on the remote's microphone, as the mic button does)
+    // MARK: - Voice: hold the remote's mic button (Voice)
 
+    /** The on-screen Speak button can't turn the remote's microphone on: it says how. */
     private void listen() {
         hideKeyboard();
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Ui.locale().toLanguageTag())
-                .putExtra(RecognizerIntent.EXTRA_PROMPT, Ui.tr("Pergunte qualquer coisa", "Ask anything", "Pregunta lo que quieras"));
-        try {
-            startActivityForResult(intent, VOICE_INPUT);
-            status.setText(Ui.tr("Ouvindo…", "Listening…", "Escuchando…"));
-        } catch (android.content.ActivityNotFoundException e) {
-            status.setText(Ui.tr("Esta TV não tem entrada de voz: digite a pergunta.", "This TV has no voice input: type your question.", "Este TV no tiene entrada de voz: escribe la pregunta."));
-            typeQuestion();
-        }
+        status.setText(Ui.tr("Segure o botão do microfone do controle e fale.", "Hold the mic button on your remote and speak.",
+                "Mantén pulsado el botón del micrófono del control y habla."));
     }
 
-    @Override protected void onActivityResult(int code, int result, Intent data) {
-        super.onActivityResult(code, result, data);
-        if (code != VOICE_INPUT) return;
-        ArrayList<String> said = data == null ? null : data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-        if (result == RESULT_OK && said != null && !said.isEmpty() && !said.get(0).trim().isEmpty()) {
-            question.setText(said.get(0));
-            ask(said.get(0));
-        } else {
-            status.setText(Ui.tr("Não ouvi nada. Fale de novo ou digite.", "I didn't catch that. Speak again or type.", "No te escuché. Habla de nuevo o escribe."));
-            setActions(false);
-            actions.getChildAt(0).requestFocus();
-        }
+    @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (voice.onKey(e)) return true;   // the remote's mic button: hold to talk
+        return super.dispatchKeyEvent(e);
     }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        voice.onPermission(code, results);
+    }
+
+    private final Voice voice = new Voice(this, new Voice.Listener() {
+        @Override public void status(String text) {
+            hideKeyboard();
+            status.setText(text);
+        }
+        @Override public void heard(String text, boolean done) {
+            question.setText(text);
+            if (done) ask(text);
+        }
+        @Override public void failed(String why) {
+            hideKeyboard();
+            status.setText(why);
+            setActions(false);
+        }
+    });
 
     private void hideKeyboard() {
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);

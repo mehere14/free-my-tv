@@ -40,7 +40,6 @@ import java.util.concurrent.Executors;
  * route to the matches, then closes. The list is plain views (TV keyboard, focus); the map is drawn (MapTiles).
  */
 public final class PlanActivity extends Activity {
-    private static final int VOICE_INPUT = 8;
     /** The panel's width and margin (dp): the map's open area starts right of it. */
     private static final int PANEL_W = 320, PANEL_X = 40;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -71,6 +70,7 @@ public final class PlanActivity extends Activity {
 
     @Override protected void onDestroy() {
         asking++;
+        voice.destroy();
         io.shutdownNow();
         super.onDestroy();
     }
@@ -387,33 +387,37 @@ public final class PlanActivity extends Activity {
         if (imm != null) imm.hideSoftInputFromWindow(search.getWindowToken(), 0);
     }
 
-    /** Google's voice input screen: it turns on the remote's microphone, as the mic button does. */
+    /** The on-screen Speak button can't turn the remote's microphone on: it says how. */
     private void listen() {
         hideKeyboard();
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Ui.locale().toLanguageTag())
-                .putExtra(RecognizerIntent.EXTRA_PROMPT, Ui.tr("Diga um lugar", "Say a place", "Di un lugar"));
-        try {
-            startActivityForResult(intent, VOICE_INPUT);
-        } catch (android.content.ActivityNotFoundException e) {
-            hint(Ui.tr("Esta TV não tem entrada de voz: digite o lugar.", "This TV has no voice input: type the place.", "Este TV no tiene entrada de voz: escribe el lugar."));
-            showKeyboard();
-        }
+        hint(Ui.tr("Segure o botão do microfone do controle e diga um lugar.", "Hold the mic button on your remote and say a place.",
+                "Mantén pulsado el botón del micrófono del control y di un lugar."));
     }
 
-    @Override protected void onActivityResult(int code, int result, Intent data) {
-        super.onActivityResult(code, result, data);
-        if (code != VOICE_INPUT) return;
-        ArrayList<String> said = data == null ? null : data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-        if (result == RESULT_OK && said != null && !said.isEmpty() && !said.get(0).trim().isEmpty()) {
-            search.setText(said.get(0));
-            find(said.get(0));
-        } else {
-            hint(Ui.tr("Não ouvi nada. Fale de novo ou digite.", "I didn't catch that. Speak again or type.", "No te escuché. Habla de nuevo o escribe."));
+    @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (voice.onKey(e)) return true;   // the remote's mic button: hold to talk
+        return super.dispatchKeyEvent(e);
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        voice.onPermission(code, results);
+    }
+
+    private final Voice voice = new Voice(this, new Voice.Listener() {
+        @Override public void status(String text) {
+            hideKeyboard();
+            hint(text);
+        }
+        @Override public void heard(String text, boolean done) {
+            search.setText(text);
+            if (done) find(text);
+        }
+        @Override public void failed(String why) {
+            hideKeyboard();
+            hint(why);
             mic.requestFocus();
         }
-    }
+    });
 
     // MARK: - The map
 
