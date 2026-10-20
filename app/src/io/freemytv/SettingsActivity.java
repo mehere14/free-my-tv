@@ -41,6 +41,8 @@ import java.util.Set;
  * (HomeMode) and this screen only asks for it and follows the state file.
  */
 public class SettingsActivity extends Activity {
+    /** Opens straight on a screen: OPEN_AI is Ask AI's settings (from Ask AI, when there's no key). */
+    static final String OPEN = "open", OPEN_AI = "ai";
     private SettingsView view;
     private DreamView preview;   // "Screensaver": the screensaver right here, without changing the system setting
 
@@ -55,6 +57,10 @@ public class SettingsActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         view.resume();
+        if (OPEN_AI.equals(getIntent().getStringExtra(OPEN))) {
+            getIntent().removeExtra(OPEN);
+            view.openAi();
+        }
         // From ADB: am start -n io.freemytv/.SettingsActivity --ez screensaver true (straight to the preview).
         if (preview == null && getIntent().getBooleanExtra("screensaver", false)) {
             getIntent().removeExtra("screensaver");
@@ -110,7 +116,12 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, AI = 6;
+        /** The main list's rows. Remote Buttons only where they work (TCL); Ask AI's settings everywhere. */
+        private static final int M_HOME = 0, M_SCREENSAVER = 1, M_HOME_SETTINGS = 2, M_SHELF = 3, M_REMOTE = 4, M_AI = 5, M_TV = 6;
+        /** Test connection: "" not tried, "…" running, then the result. */
+        private String testResult = "";
+        private boolean testOk;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_H = 74, ROW_GAP = 8, CHOICE_H = 104;
@@ -203,9 +214,9 @@ public class SettingsActivity extends Activity {
                                 : freeActive() ? "Free My TV" : Ui.tr("Original", "Original");
                         return Ui.tr("Início, ", "Home Screen, ") + value;
                     }
-                    String[] names = {Ui.tr("Tela de Descanso, ver agora", "Screensaver, preview"), Ui.tr("Ajustes do Início", "Home Settings"),
-                            Ui.tr("Prateleira", "Shelf"), Ui.tr("Botões do Controle", "Remote Buttons"), Ui.tr("Ajustes da TV", "TV Settings")};
-                    return row - 1 < names.length ? names[row - 1] : "";
+                    int[] items = mainItems();
+                    if (row >= items.length) return "";
+                    return items[row] == M_SCREENSAVER ? Ui.tr("Tela de Descanso, ver agora", "Screensaver, preview") : mainLabel(items[row]);
                 }
                 case HOME_CHOICE: {
                     String name = row == 0 ? "Free My TV, " + (Config.OWN_SCREENSAVER ? Ui.tr("sem anúncios, com a tela de descanso nova", "no ads, with the new screensaver")
@@ -215,9 +226,9 @@ public class SettingsActivity extends Activity {
                     return name + (inUse ? Ui.tr(". Em uso", ". In use") : "") + ", " + (row + 1) + Ui.tr(" de 2", " of 2");
                 }
                 case HOME_SETTINGS:
+                case AI:
                 case REMOTE_KEYS: {
-                    boolean keys = screen == REMOTE_KEYS;
-                    String[] labels = keys ? keyLabels() : settingLabels(), values = keys ? keyValues() : settingValues();
+                    String[] labels = listLabels(), values = listValues();
                     return row < labels.length ? labels[row] + ", " + values[row] : "";
                 }
                 case PICKER: {
@@ -321,7 +332,8 @@ public class SettingsActivity extends Activity {
 
         private int rowCount() {
             switch (screen) {
-                case MAIN: return 6;
+                case MAIN: return mainItems().length;
+                case AI: return 4;
                 case HOME_CHOICE: return 2;
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
@@ -362,11 +374,14 @@ public class SettingsActivity extends Activity {
             boolean working = busy();
             String busyText = state.optString("busy");
             String mode = freeActive() ? "Free My TV" : Ui.tr("Original", "Original");
-            String[] labels = {Ui.tr("Início", "Home Screen"), Ui.tr("Tela de Descanso", "Screensaver"),
-                    Ui.tr("Ajustes do Início", "Home Settings"), Ui.tr("Prateleira", "Shelf"),
-                    Ui.tr("Botões do Controle", "Remote Buttons"), Ui.tr("Ajustes da TV", "TV Settings")};
-            String[] values = {working ? "" : mode, Ui.tr("Ver agora", "Preview"), "", "", "", ""};
-            for (int i = 0; i < 6; i++) {
+            int[] items = mainItems();
+            String[] labels = new String[items.length], values = new String[items.length];
+            for (int i = 0; i < items.length; i++) {
+                labels[i] = mainLabel(items[i]);
+                values[i] = items[i] == M_HOME ? (working ? "" : mode) : items[i] == M_SCREENSAVER ? Ui.tr("Ver agora", "Preview")
+                        : items[i] == M_AI ? (Keys.gemini(getContext()).isEmpty() ? Ui.tr("Sem chave", "No key", "Sin clave") : "") : "";
+            }
+            for (int i = 0; i < items.length; i++) {
                 float y = (LIST_TOP + i * (ROW_H + ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
                 float f = drawRowBackground(c, i);
@@ -393,7 +408,7 @@ public class SettingsActivity extends Activity {
                 }
             }
 
-            float y = (LIST_TOP + 6 * (ROW_H + ROW_GAP) + 20) * k;
+            float y = (LIST_TOP + mainItems().length * (ROW_H + ROW_GAP) + 20) * k;
             String error = state.optString("error");
             if (working && (busyText.contains("Permitir") || busyText.contains("Allow"))) {
                 c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."),
@@ -596,7 +611,9 @@ public class SettingsActivity extends Activity {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
                             } else {
-                                focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
+                                int item = screen == HOME_SETTINGS ? M_HOME_SETTINGS : screen == SHELF_EDIT ? M_SHELF
+                                        : screen == REMOTE_KEYS ? M_REMOTE : screen == AI ? M_AI : M_HOME;
+                                focus = Math.max(0, indexOf(mainItems(), item));
                                 screen = MAIN;
                             }
                         }
@@ -830,11 +847,11 @@ public class SettingsActivity extends Activity {
 
         private void drawList(Canvas c) {
             boolean keys = screen == REMOTE_KEYS;
-            String[] labels = keys ? keyLabels() : settingLabels();
-            String[] values = keys ? keyValues() : settingValues();
+            String[] labels = listLabels();
+            String[] values = listValues();
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : Ui.tr("Ajustes do Início", "Home Settings"),
-                    LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : screen == AI ? Ui.tr("Pergunte à IA", "Ask AI", "Pregunta a la IA")
+                    : Ui.tr("Ajustes do Início", "Home Settings"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             for (int i = 0; i < labels.length; i++) {
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
@@ -843,10 +860,29 @@ public class SettingsActivity extends Activity {
                 rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
+                String value = screen == AI ? TextUtils.ellipsize(values[i], new TextPaint(rowValue), 380 * k, TextUtils.TruncateAt.END).toString() : values[i];
+                if (screen == AI && i == 3 && !testResult.isEmpty() && !"…".equals(testResult)) rowValue.setColor(blend(testOk ? 0xFF30D158 : AMBER, testOk ? 0xFF248A3D : 0xFFB25000, f));
+                c.drawText(value, rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            if (screen == AI) {
+                float x = LIST_X * k + 30 * k, width = (LIST_R - LIST_X - 60) * k;
+                if (!testResult.isEmpty() && !"…".equals(testResult) && !testOk) {
+                    // The API's own words, wrapped (the row shows only the start).
+                    StaticLayout full = StaticLayout.Builder.obtain(testResult, 0, testResult.length(), new TextPaint(warn), Math.round(width)).setMaxLines(3).build();
+                    c.save();
+                    c.translate(x, hy - Ui.cap(warn));
+                    full.draw(c);
+                    c.restore();
+                    hy += full.getHeight() + 30 * k;
+                }
+                c.drawText(Ui.tr("OK edita (o teclado da TV aparece) ou liga e desliga.", "OK edits (the TV keyboard comes up) or switches on and off.",
+                        "OK edita (aparece el teclado del TV) o activa y desactiva."), x, hy, hint);
+                c.drawText(Ui.tr("Ou do computador: \"API keys\" no README.", "Or from your computer: \"API keys\" in the README.",
+                        "O desde la computadora: \"API keys\" en el README."), x, hy + 38 * k, hint);
+                return;
+            }
             c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.supported() ? Ui.tr("Disney e Globoplay: a própria TV controla esses botões.",
@@ -854,6 +890,109 @@ public class SettingsActivity extends Activity {
                         : Ui.tr("Esses são os botões do controle da TCL: nesta TV, os botões funcionam como sempre.",
                         "These are the TCL remote's buttons: on this TV, the buttons work as they always did."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }
+        }
+
+        private int[] mainItems() {
+            return RemoteKeys.supported() ? new int[] {M_HOME, M_SCREENSAVER, M_HOME_SETTINGS, M_SHELF, M_REMOTE, M_AI, M_TV}
+                    : new int[] {M_HOME, M_SCREENSAVER, M_HOME_SETTINGS, M_SHELF, M_AI, M_TV};
+        }
+
+        private static int indexOf(int[] items, int item) {
+            for (int i = 0; i < items.length; i++) if (items[i] == item) return i;
+            return -1;
+        }
+
+        private static String mainLabel(int item) {
+            switch (item) {
+                case M_HOME: return Ui.tr("Início", "Home Screen");
+                case M_SCREENSAVER: return Ui.tr("Tela de Descanso", "Screensaver");
+                case M_HOME_SETTINGS: return Ui.tr("Ajustes do Início", "Home Settings");
+                case M_SHELF: return Ui.tr("Prateleira", "Shelf");
+                case M_REMOTE: return Ui.tr("Botões do Controle", "Remote Buttons");
+                case M_AI: return Ui.tr("Pergunte à IA", "Ask AI", "Pregunta a la IA");
+                default: return Ui.tr("Ajustes da TV", "TV Settings");
+            }
+        }
+
+        private String[] listLabels() {
+            if (screen == REMOTE_KEYS) return keyLabels();
+            if (screen == AI) {
+                return new String[] {Ui.tr("Chave da API do Gemini", "Gemini API key", "Clave de API de Gemini"), Ui.tr("Modelo", "Model", "Modelo"),
+                        Ui.tr("Pesquisa Google nas respostas", "Google Search grounding", "Búsqueda de Google en las respuestas"),
+                        Ui.tr("Testar conexão", "Test connection", "Probar conexión")};
+            }
+            return settingLabels();
+        }
+
+        private String[] listValues() {
+            if (screen == REMOTE_KEYS) return keyValues();
+            if (screen == AI) {
+                Context c = getContext();
+                String key = Keys.gemini(c);
+                return new String[] {key.isEmpty() ? Ui.tr("Não definida", "Not set", "Sin definir") : Keys.hint(key), Keys.model(c),
+                        onOff(Keys.grounding(c)), testResult};
+            }
+            return settingValues();
+        }
+
+        void openAi() {
+            screen = AI;
+            focus = 0;
+            testResult = "";
+            for (Spring s : pop) s.snap(0);
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        /** Ask AI's rows: edit the key or the model (the TV keyboard), switch grounding, or test the connection. */
+        private void activateAi() {
+            Context c = getContext();
+            if (focus == 0) {
+                edit(Ui.tr("Chave da API do Gemini", "Gemini API key", "Clave de API de Gemini"), "", true, v -> {
+                    if (!v.trim().isEmpty()) Keys.put(c, Keys.GEMINI, v);
+                    testResult = "";
+                });
+            } else if (focus == 1) {
+                edit(Ui.tr("Modelo", "Model", "Modelo"), Keys.model(c), false, v -> {
+                    Keys.put(c, Keys.MODEL, v.trim().isEmpty() ? Keys.DEFAULT_MODEL : v);
+                    testResult = "";
+                });
+            } else if (focus == 2) {
+                Keys.put(c, Keys.GROUNDING, Keys.grounding(c) ? "false" : "true");
+            } else if (!"…".equals(testResult)) {
+                testResult = "…";
+                Context app = c.getApplicationContext();
+                new Thread(() -> {
+                    String err = Gemini.test(app);
+                    handler.post(() -> {
+                        testOk = err.isEmpty();
+                        testResult = testOk ? Ui.tr("Conectado · ", "Connected · ", "Conectado · ") + Keys.model(app) : err;
+                        invalidate();
+                        announceForAccessibility(testResult);
+                    });
+                }).start();
+            }
+        }
+
+        /** A one-line text box in a dialog (the TV keyboard comes up with it); `secret` hides what's typed. */
+        private void edit(String titleText, String value, boolean secret, java.util.function.Consumer<String> done) {
+            android.widget.EditText field = new android.widget.EditText(activity);
+            field.setSingleLine(true);
+            field.setText(value);
+            field.setSelection(value.length());
+            if (secret) field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            android.app.AlertDialog d = new android.app.AlertDialog.Builder(activity)
+                    .setTitle(titleText)
+                    .setView(field)
+                    .setPositiveButton(Ui.tr("Salvar", "Save", "Guardar"), (dialog, which) -> {
+                        done.accept(field.getText().toString());
+                        invalidate();
+                    })
+                    .setNegativeButton(Ui.tr("Cancelar", "Cancel", "Cancelar"), null)
+                    .create();
+            d.setOnShowListener(x -> field.requestFocus());
+            d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            d.show();
         }
 
         private void activate() {
@@ -881,25 +1020,34 @@ public class SettingsActivity extends Activity {
                 adjust(1);
                 invalidate();
                 return;
-            } else if (focus == 0) {
-                if (busy()) return;
-                screen = HOME_CHOICE;
-                focus = freeActive() ? 0 : 1;
-            } else if (focus == 1) {
-                pause();
-                activity.showPreview();
-            } else if (focus == 2) {
-                screen = HOME_SETTINGS;
-                focus = 0;
-            } else if (focus == 3) {
-                openShelfEditor();
-            } else if (focus == 4) {
-                HomeMode.ensureRemoteService(c, 0);   // the buttons work from inside other apps through this service
-                loadApps();
-                screen = REMOTE_KEYS;
-                focus = 0;
+            } else if (screen == AI) {
+                activateAi();
+                invalidate();
+                return;
             } else {
-                activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                int item = mainItems()[Math.min(focus, mainItems().length - 1)];
+                if (item == M_HOME) {
+                    if (busy()) return;
+                    screen = HOME_CHOICE;
+                    focus = freeActive() ? 0 : 1;
+                } else if (item == M_SCREENSAVER) {
+                    pause();
+                    activity.showPreview();
+                } else if (item == M_HOME_SETTINGS) {
+                    screen = HOME_SETTINGS;
+                    focus = 0;
+                } else if (item == M_SHELF) {
+                    openShelfEditor();
+                } else if (item == M_REMOTE) {
+                    HomeMode.ensureRemoteService(c, 0);   // the buttons work from inside other apps through this service
+                    loadApps();
+                    screen = REMOTE_KEYS;
+                    focus = 0;
+                } else if (item == M_AI) {
+                    openAi();
+                } else {
+                    activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                }
             }
             for (Spring s : pop) s.snap(0);
             invalidate();

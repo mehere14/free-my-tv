@@ -84,7 +84,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
     private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
-    private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
+    private static final ExecutorService LOADER = Ui.background();
     // Light design (the L_ constants, mockup/tokens.json in dp x 2): greeting, search row, cards and the shelf.
     // The search row is 1.5x the tvOS tab bar (102); every home box has the shelf glass's corners (62 = 22 + 40).
     private static final float L_TITLE_BASE = 112, L_TABBAR_TOP = 144, L_TABBAR_H = 102, L_CARDS_TOP = 282, L_CARD_H = 422;
@@ -1834,17 +1834,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             r = drawerRects[drawerIndex];
         } else if (zone == Z_TOP) {
             if (topIndex < 3) {
-                // Search, voice and Ask AI come with the next part of this home screen.
                 click.open();
-                showToast(Ui.tr("Em breve: pesquisa, voz e IA.", "Coming soon: search, voice and Ask AI.", "Próximamente: búsqueda, voz e IA."));
+                if (topIndex == T_MIC) {
+                    // The remote's own voice search: Google Assistant on Android TV.
+                    try {
+                        activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_ASSIST)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+                    } catch (RuntimeException e) {
+                        showToast(Ui.tr("Esta TV não tem pesquisa por voz.", "This TV has no voice search.", "Este TV no tiene búsqueda por voz."));
+                    }
+                } else {
+                    // Typed text goes to Ask AI: on this TV, Google TV search ignores a query handed to it (tested).
+                    activity.startActivity(new android.content.Intent(activity, AskActivity.class)
+                            .putExtra(AskActivity.MODE, topIndex == T_ASK ? AskActivity.VOICE : AskActivity.TYPE));
+                }
                 return;
             }
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
         } else if (zone == Z_CARDS) {
             click.open();
-            showToast(cardIndex == C_PLAN ? Ui.tr("Em breve: planejar rotas.", "Coming soon: route planning.", "Próximamente: planear rutas.")
-                    : Ui.tr("Em breve: o radar em tela cheia.", "Coming soon: the full-screen radar.", "Próximamente: el radar a pantalla completa."));
+            if (cardIndex == C_PLAN) {
+                activity.startActivity(new android.content.Intent(activity, PlanActivity.class));
+            } else {
+                activity.startActivity(new android.content.Intent(activity, RadarActivity.class));   // weather and radar both open it
+            }
             return;
         } else {
             if (shelf.isEmpty()) return;
@@ -2059,7 +2073,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (r.isEmpty()) return;
         HomeData.Weather wx = data.weather;
         boolean snow = !Double.isNaN(wx.temp) && (wx.temp <= 0.5 || "snowflake".equals(Symbols.weather(wx.code, true)));
-        radar.refreshIfStale(Math.round(r.width()), Math.round(r.height()), night > 0.5f, snow, () -> {
+        radar.refreshIfStale(getContext(), Math.round(r.width()), Math.round(r.height()), night > 0.5f, snow, () -> {
             updateMetas();
             heroDirty = true;
             heroLayer.invalidate();
@@ -2300,6 +2314,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 c.drawRoundRect(cell, r, r, fill);
             }
             if (pic != null) drawHomeDot(c, cell);
+            Bitmap logo = radar.google ? MapTiles.logoIfLoaded() : null;
+            if (logo != null && pic != null) {
+                // Google's terms: their logo on their map, unchanged, 16 to 19 dp tall.
+                float lh = 32 * k * s, lw = lh * logo.getWidth() / logo.getHeight();
+                tmp.set(cell.left + 28 * k * s, cell.bottom - 24 * k * s - lh, cell.left + 28 * k * s + lw, cell.bottom - 24 * k * s);
+                c.drawBitmap(logo, null, tmp, bitmapPaint);
+            }
         } else {
             scene.glass(c, cell, r, tone(0xFFFFFFFF, SMOKE), tone(0.72f, 0.4f), 0, 0, 0.02f, 1);
             // The content moves and grows with the card.
@@ -2336,10 +2357,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The lines under the weather and radar cards (when the data, the radar or the minute changes). */
     private void updateMetas() {
-        weatherMeta = "Open-Meteo" + (data.weatherAt > 0 ? Ui.tr(" · atualizado ", " · updated ", " · actualizado ") + Ui.time(data.weatherAt) : "")
+        weatherMeta = data.weather.source + (data.weatherAt > 0 ? Ui.tr(" · atualizado ", " · updated ", " · actualizado ") + Ui.time(data.weatherAt) : "")
                 + Ui.tr(" · OK para o radar", " · OK for radar", " · OK para el radar");
         String caption = radar.caption;
-        radarMeta = caption.isEmpty() ? Ui.tr("Carregando…", "Loading…", "Cargando…") : caption + " · Esri";
+        radarMeta = caption.isEmpty() ? Ui.tr("Carregando…", "Loading…", "Cargando…") : caption;
     }
 
     /** Home on the radar picture: a blue dot with a white ring (the picture is centered on home). */
@@ -2372,7 +2393,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Symbols.draw(getContext(), c, symbol, x + sw / 2, r.top + 162 * k, 52 * k, ink);
         String now = HomeData.degrees(wx.temp);
         c.drawText(now, x + sw + 18 * k - Ui.leftBearing(bigTemp, now), r.top + 200 * k, bigTemp);
-        c.drawText(HomeData.condition(wx.code, wx.isDay), x, r.top + 270 * k, cardText);
+        c.drawText(wx.text.isEmpty() ? HomeData.condition(wx.code, wx.isDay) : wx.text, x, r.top + 270 * k, cardText);
         c.drawText(Ui.en ? "H:" + HomeData.degrees(wx.max) + "   L:" + HomeData.degrees(wx.min)
                 : Ui.tr("Máx. ", "", "Máx. ") + HomeData.degrees(wx.max) + Ui.tr("   Mín. ", "", "   Mín. ") + HomeData.degrees(wx.min),
                 x, r.top + 310 * k, cardDim);

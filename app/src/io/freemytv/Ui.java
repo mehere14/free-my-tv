@@ -36,6 +36,17 @@ final class Ui {
     private static final Rect BOUNDS = new Rect();
     private static final RectF OVAL = new RectF();
 
+    /**
+     * One background thread at Android's background priority: the home screen's fetching and decoding (weather, the
+     * radar picture, logos) yields to the frames, so a refresh never makes a focus animation stutter.
+     */
+    static java.util.concurrent.ExecutorService background() {
+        return java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            r.run();
+        }));
+    }
+
     static synchronized void init(Context c) {
         if (loaded) return;
         loaded = true;

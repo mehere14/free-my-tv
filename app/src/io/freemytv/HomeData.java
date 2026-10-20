@@ -24,9 +24,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Weather, sunrise and sunset (Open-Meteo, every 30 min), cached so the screen opens with numbers. Only fetched while
- * the home screen or the screensaver is visible (the screen asks). No key needed; the location comes from
- * config.properties.
+ * Weather, sunrise and sunset, cached so the screen opens with numbers: Google Weather (once an hour) when there's a
+ * Google Maps Platform key (Keys), else, or when Google fails, Open-Meteo (every 30 min, no key). Only fetched while
+ * the home screen or the screensaver is visible (the screen asks). The location comes from config.properties.
  */
 final class HomeData {
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
@@ -40,6 +40,9 @@ final class HomeData {
         return "https://api.open-meteo.com/v1/forecast?latitude=" + Prefs.latitude() + "&longitude=" + Prefs.longitude() + WEATHER_QUERY;
     }
     private static final long WEATHER_EVERY = 30 * 60_000L;
+    /** Google's Weather API: 10,000 free calls a month, 3 per refresh; once an hour is ~2,200 even left on all day. */
+    private static final long GOOGLE_EVERY = 60 * 60_000L;
+    private static final String GOOGLE = "https://weather.googleapis.com/v1/";
     interface Listener { void onData(); }
 
     /** Settings changed (the city): fetch again now. */
@@ -59,6 +62,9 @@ final class HomeData {
         final List<Boolean> hourDay = new ArrayList<>();
         /** The highest chance of rain or snow (%) over those hours. */
         int rainChance;
+        /** Google's own words for the sky ("Partly cloudy"); empty with Open-Meteo (the app's words from `code`). */
+        String text = "";
+        String source = "Open-Meteo";
     }
 
     private static HomeData instance;
@@ -72,12 +78,15 @@ final class HomeData {
     volatile Weather weather = new Weather();
 
     private final SharedPreferences cache;
-    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Context app;
+    private final ExecutorService io = Ui.background();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
     private volatile boolean fetchingWeather;
+    private volatile long googleTriedAt;
 
     private HomeData(Context c) {
+        app = c;
         cache = c.getSharedPreferences("homedata", Context.MODE_PRIVATE);
         try {
             String w = cache.getString("weather", null);
@@ -96,11 +105,27 @@ final class HomeData {
     void refreshIfStale() {
         long now = System.currentTimeMillis();
         // A negative age (the TV's clock went back) counts as stale: otherwise the data would freeze.
-        if (!fetchingWeather && (now - weatherAt > WEATHER_EVERY || now < weatherAt)) {
+        boolean hasKey = !Keys.maps(app).isEmpty(), google = "Google Weather".equals(weather.source);
+        long every = hasKey && google ? GOOGLE_EVERY : WEATHER_EVERY;
+        // A key just arrived (or Google failed a while ago): try Google now instead of waiting for Open-Meteo's turn.
+        boolean upgrade = hasKey && !google && now - googleTriedAt > 10 * 60_000L;
+        if (!fetchingWeather && (upgrade || now - weatherAt > every || now < weatherAt)) {
             fetchingWeather = true;
+            if (hasKey) googleTriedAt = now;
             io.execute(() -> {
                 try {
-                    String body = get(weatherUrl());
+                    String body = null;
+                    String key = Keys.maps(app);
+                    if (!key.isEmpty()) {
+                        try {
+                            body = googleBody(key);
+                            parseWeather(body);   // Google's answer must make sense before it replaces anything
+                        } catch (Exception e) {
+                            AppLog.w("Google Weather: " + e.getMessage() + " (Open-Meteo instead)");
+                            body = null;
+                        }
+                    }
+                    if (body == null) body = get(weatherUrl());
                     weather = parseWeather(body);
                     weatherAt = System.currentTimeMillis();
                     cache.edit().putString("weather", body).putLong("weatherAt", weatherAt).putString("weatherPlace", weatherPlace()).apply();
@@ -120,6 +145,7 @@ final class HomeData {
 
     private static Weather parseWeather(String body) throws Exception {
         JSONObject o = new JSONObject(body);
+        if (o.has("google")) return parseGoogle(o.getJSONObject("google"));
         TimeZone zone = TimeZone.getTimeZone(o.optString("timezone", TimeZone.getDefault().getID()));
         Weather w = new Weather();
         JSONObject current = o.getJSONObject("current");
@@ -152,6 +178,66 @@ final class HomeData {
         return w;
     }
 
+    /** Google Weather's three answers (now, the next hours, today and tomorrow), kept together as one cached body. */
+    private static String googleBody(String key) throws Exception {
+        String q = "?location.latitude=" + Prefs.latitude() + "&location.longitude=" + Prefs.longitude()
+                + "&unitsSystem=METRIC&languageCode=" + Ui.locale().toLanguageTag();
+        JSONObject all = new JSONObject();
+        all.put("now", new JSONObject(get(GOOGLE + "currentConditions:lookup" + q, key)));
+        all.put("hours", new JSONObject(get(GOOGLE + "forecast/hours:lookup" + q + "&hours=8&pageSize=8", key)));
+        all.put("days", new JSONObject(get(GOOGLE + "forecast/days:lookup" + q + "&days=1&pageSize=1", key)));
+        return new JSONObject().put("google", all).toString();
+    }
+
+    private static Weather parseGoogle(JSONObject g) throws Exception {
+        Weather w = new Weather();
+        w.source = "Google Weather";
+        JSONObject now = g.getJSONObject("now"), cond = now.getJSONObject("weatherCondition");
+        w.temp = now.getJSONObject("temperature").getDouble("degrees");
+        w.isDay = now.optBoolean("isDaytime", true);
+        w.code = googleCode(cond.optString("type"));
+        w.text = cond.optJSONObject("description") != null ? cond.getJSONObject("description").optString("text") : "";
+        JSONObject today = g.getJSONObject("days").getJSONArray("forecastDays").getJSONObject(0);
+        w.max = today.getJSONObject("maxTemperature").getDouble("degrees");
+        w.min = today.getJSONObject("minTemperature").getDouble("degrees");
+        JSONObject sun = today.getJSONObject("sunEvents");
+        w.sunrise = utc(sun.getString("sunriseTime"));
+        w.sunset = utc(sun.getString("sunsetTime"));
+        JSONArray hours = g.getJSONObject("hours").getJSONArray("forecastHours");
+        long t = System.currentTimeMillis();
+        for (int i = 0; i < hours.length() && w.hours.size() < 6; i++) {
+            JSONObject h = hours.getJSONObject(i);
+            long at = utc(h.getJSONObject("interval").getString("startTime"));
+            if (at <= t) continue;
+            w.hours.add(at);
+            w.hourTemp.add(h.getJSONObject("temperature").getDouble("degrees"));
+            w.hourCode.add(googleCode(h.getJSONObject("weatherCondition").optString("type")));
+            w.hourDay.add(h.optBoolean("isDaytime", true));
+            JSONObject rain = h.optJSONObject("precipitation");
+            if (rain != null && rain.optJSONObject("probability") != null) w.rainChance = Math.max(w.rainChance, rain.getJSONObject("probability").optInt("percent"));
+        }
+        return w;
+    }
+
+    /** Google's WeatherCondition type as the WMO code the app's symbols and words use (Symbols.weather, condition). */
+    static int googleCode(String type) {
+        if (type.equals("CLEAR")) return 0;
+        if (type.equals("MOSTLY_CLEAR")) return 1;
+        if (type.equals("PARTLY_CLOUDY")) return 2;
+        if (type.contains("THUNDER")) return 95;
+        if (type.contains("SNOW")) return 73;
+        if (type.contains("HEAVY") || type.equals("MODERATE_TO_HEAVY_RAIN") || type.equals("RAIN_PERIODICALLY_HEAVY")) return 65;
+        if (type.contains("RAIN") || type.contains("SHOWER") || type.contains("HAIL")) return 61;
+        return 3;   // MOSTLY_CLOUDY, CLOUDY, WINDY
+    }
+
+    /** "2026-10-20T19:00:00.123456789Z" (UTC, any fraction) in epoch ms. */
+    private static long utc(String iso) throws ParseException {
+        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US);
+        f.setTimeZone(TimeZone.getTimeZone("UTC"));
+        return f.parse(iso.substring(0, 19)).getTime();
+    }
+
     private static long localTime(String iso, TimeZone zone) throws ParseException {
         SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US);
         f.setTimeZone(zone);
@@ -159,10 +245,16 @@ final class HomeData {
     }
 
     private static String get(String url) throws IOException {
+        return get(url, null);
+    }
+
+    /** GET; with a key, it goes in Google's header (never the URL, never the log). */
+    private static String get(String url, String key) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(6000);
         c.setReadTimeout(6000);
         c.setRequestProperty("User-Agent", "FreeMyTV");
+        if (key != null) c.setRequestProperty("X-Goog-Api-Key", key);
         try {
             if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());
             try (InputStream in = c.getInputStream()) {

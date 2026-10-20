@@ -104,6 +104,18 @@ You need a Samsung TV from 2017 or newer (Tizen 3+) and a computer on the same W
 
 This build takes your city from the TV's time zone. For your exact city and the trending picks, build it with your own `config.properties` and [TMDB key](#the-tmdb-key): open the folder in Claude Code and say *"Install Free My TV on my Samsung TV at 192.168.1.50. I live in Lisbon."* It sets up Samsung's tools, and on 2023 and newer TVs you sign in to your Samsung account in the browser to make the certificate.
 
+## Ask AI, radar and routes (Google, optional)
+
+With your own keys (see [API keys](#rebuild-reinstall-undo-from-your-computer)) the home screen does more. Without them, it still works: the weather comes from Open-Meteo and the map from Esri.
+
+- **Search row.** The mic opens Google's voice search (the remote's own). The search box and **Ask AI** open Ask AI: your question, said or typed, answered by Gemini in large type, with its sources when *Google Search grounding* is on. (Google TV search ignores typed text handed to it on this TV, so typed questions go to Ask AI.)
+- **Weather.** Google Weather with a Google Maps Platform key (refreshed hourly), else Open-Meteo.
+- **Radar.** OK on the weather or radar card: the last hour of radar, animated, on Google's map (Environment Canada in Canada, NOAA in the US). Ready in about 1.5 s.
+- **Plan a route.** Say or type a place: Google Maps' matches near home, then the drive from home with live traffic, drawn on the map.
+- **Settings → Ask AI.** The Gemini key (masked but for its last 4 characters, stored encrypted), the model (`gemini-flash-latest`), grounding on or off, and *Test connection*.
+
+The Google Maps Platform key needs these APIs on (and allowed in the key's restrictions): Map Tiles, Weather, Places (New), Routes, Geocoding. The Gemini key comes from [Google AI Studio](https://aistudio.google.com/apikey). Each has a free monthly allowance; set a budget alert in Google Cloud to be safe.
+
 ## Settings
 
 The first values come from `config.properties`, created by the first build (Google TV, LG and Samsung use the same file). Most of them can also be changed on the TV, in *Free My TV* → *Home Settings*, and the TV's choice wins:
@@ -116,6 +128,9 @@ The first values come from `config.properties`, created by the first build (Goog
 | `city` | The name on the weather card | `Weather` |
 | `language` | `auto` (follows the TV), `en`, `es` or `pt` | `auto` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
+| `gemini_key`, `gemini_model`, `gemini_grounding` | Ask AI (pushed to the TV, see API keys) | empty, `gemini-flash-latest`, `true` |
+| `maps_key` | Google Maps Platform: weather, maps, radar map, routes (pushed to the TV) | empty |
+| `profile_initial` | The letter on the home screen's Profile button | empty |
 | `own_screensaver` | Make Free My TV the screensaver too (otherwise the TV keeps its own, like Ambient mode) | `false` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
 
