@@ -75,6 +75,12 @@ final class Prefs {
     static String latitude() { return Config.LATITUDE; }
     static String longitude() { return Config.LONGITUDE; }
 
+    /** The letter on the Profile button (config.properties profile_initial). */
+    static String profileInitial() {
+        String v = Config.PROFILE_INITIAL.trim();
+        return v.isEmpty() ? "•" : v.substring(0, v.offsetByCodePoints(0, 1)).toUpperCase(java.util.Locale.ROOT);
+    }
+
     // MARK: - Widgets
 
     static boolean weather() { return sp().getBoolean("weather", true); }

@@ -139,6 +139,12 @@ adb connect 192.168.2.14:5555                # your TV's IP; "Always allow" on t
 adb install -r FreeMyTV.apk                  # an update keeps your settings and the switch
 ```
 
+**API keys (Gemini, Google Maps) from the computer**, without typing them on the remote: push `config.properties` to a spot only the TV's debugging shell can read, then press Home on the TV. Free My TV imports `gemini_key`, `gemini_model`, `gemini_grounding` and `maps_key`, stores them encrypted (Android Keystore) and deletes the file. Nothing else is read from it.
+
+```bash
+adb push config.properties /data/local/tmp/freemytv.properties && adb shell chmod 600 /data/local/tmp/freemytv.properties
+```
+
 Keep `freemytv.keystore`: an update signed with another key won't install (you'd have to switch to *Original* and uninstall first).
 
 **Undo without the app** (it crashed, or was uninstalled while switched): turn the apps back on, then give the home screen back. The TV's original values, recorded before the first switch, are in `sony-before.txt`.

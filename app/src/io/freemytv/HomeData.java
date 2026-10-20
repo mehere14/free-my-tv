@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
  */
 final class HomeData {
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
-            + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
+            + "&hourly=temperature_2m,weather_code,is_day,precipitation_probability&timezone=auto&forecast_days=2";
 
     private static String weatherPlace() {
         return Prefs.latitude() + "," + Prefs.longitude();
@@ -57,6 +57,8 @@ final class HomeData {
         final List<Double> hourTemp = new ArrayList<>();
         final List<Integer> hourCode = new ArrayList<>();
         final List<Boolean> hourDay = new ArrayList<>();
+        /** The highest chance of rain or snow (%) over those hours. */
+        int rainChance;
     }
 
     private static HomeData instance;
@@ -135,6 +137,7 @@ final class HomeData {
             JSONArray temps = hourly.getJSONArray("temperature_2m");
             JSONArray codes = hourly.getJSONArray("weather_code");
             JSONArray days = hourly.optJSONArray("is_day");
+            JSONArray chances = hourly.optJSONArray("precipitation_probability");
             long now = System.currentTimeMillis();
             for (int i = 0; i < times.length() && w.hours.size() < 6; i++) {
                 long at = localTime(times.getString(i), zone);
@@ -143,6 +146,7 @@ final class HomeData {
                 w.hourTemp.add(temps.getDouble(i));
                 w.hourCode.add(codes.getInt(i));
                 w.hourDay.add(days == null || days.optInt(i, 1) == 1);
+                if (chances != null) w.rainChance = Math.max(w.rainChance, chances.optInt(i, 0));
             }
         }
         return w;
