@@ -80,10 +80,15 @@
     <div class="scrim"></div>
     <div class="sheet">
       <div class="ai-chip"><i class="sym" style="--s:url(/app/assets/symbols/sparkles.png)"></i>Ask AI<span id="ai-model"></span></div>
-      <h2 id="ai-q"></h2>
+      <div class="chat-heading"><h2 id="ai-q">New chat</h2><button class="chip" data-f data-action="new-chat"><span>New chat</span></button></div>
       <div id="ai-body" data-f data-action="none" tabindex="-1"></div>
       <div id="ai-sources"></div>
       <div id="ai-actions"></div>
+      <div class="chat-compose">
+        <div class="field" data-f data-action="chat-type"><input id="chat-q" aria-label="Message the TV" placeholder="Ask a question or follow up…" autocomplete="off" tabindex="-1"></div>
+        <button class="chip" data-f data-action="chat-send"><span>Send</span></button>
+        <button class="chip" data-f data-action="chat-voice"><span>Speak</span></button>
+      </div>
       <div class="hint">Back to close</div>
     </div>
   </section>

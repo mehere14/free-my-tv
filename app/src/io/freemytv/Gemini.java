@@ -18,8 +18,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Ask AI: one question to Gemini (generateContent), with Google Search grounding when it's on (the google_search
- * tool), answered in a few lines readable from the couch. The key comes from Keys; it goes in a header, never in the
+ * Ask AI: a question to Gemini (generateContent), after the chat's earlier turns, with Google Search grounding when
+ * it's on (the google_search tool), answered in a few lines readable from the couch. The key comes from Keys; it goes in a header, never in the
  * URL or the log. Background threads only.
  */
 final class Gemini {
@@ -36,6 +36,11 @@ final class Gemini {
     }
 
     static Answer ask(Context c, String question) {
+        return ask(c, new ArrayList<String>(), question);
+    }
+
+    /** history: the chat so far, the viewer's turns and Gemini's in turn (user, model, user, model…). */
+    static Answer ask(Context c, List<String> history, String question) {
         Answer a = new Answer();
         String key = Keys.gemini(c);
         if (key.isEmpty()) {
@@ -46,8 +51,9 @@ final class Gemini {
             JSONObject body = new JSONObject();
             String place = Prefs.city().isEmpty() ? "their city" : Prefs.city();
             body.put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(new JSONObject().put("text", String.format(SYSTEM, place)))));
-            body.put("contents", new JSONArray().put(new JSONObject().put("role", "user")
-                    .put("parts", new JSONArray().put(new JSONObject().put("text", question)))));
+            JSONArray contents = new JSONArray();
+            for (int i = 0; i < history.size(); i++) contents.put(turn(i % 2 == 0 ? "user" : "model", history.get(i)));
+            body.put("contents", contents.put(turn("user", question)));
             if (Keys.grounding(c)) body.put("tools", new JSONArray().put(new JSONObject().put("google_search", new JSONObject())));
             JSONObject res = post(API + Keys.model(c) + ":generateContent", key, body.toString());
             JSONObject cand = res.optJSONArray("candidates") != null ? res.getJSONArray("candidates").optJSONObject(0) : null;
@@ -79,6 +85,10 @@ final class Gemini {
             a.error = Ui.tr("Não deu para falar com o Gemini: ", "Couldn't reach Gemini: ", "No se pudo hablar con Gemini: ") + e.getClass().getSimpleName();
         }
         return a;
+    }
+
+    private static JSONObject turn(String role, String text) throws Exception {
+        return new JSONObject().put("role", role).put("parts", new JSONArray().put(new JSONObject().put("text", text)));
     }
 
     /** Settings' "Test connection": the model exists, and it answers. Returns "" when it works, else the API's words. */

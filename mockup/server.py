@@ -356,10 +356,10 @@ def answer(data):
     return {"text": text.strip(), "sources": sources[:5], "model": data.get("modelVersion", "")}, None
 
 
-def ask(question, cfg):
+def ask(question, cfg, history=None):
     s = public_settings(cfg)
     body = {"systemInstruction": {"parts": [{"text": SYSTEM}]},
-            "contents": [{"role": "user", "parts": [{"text": question}]}]}
+            "contents": (history or []) + [{"role": "user", "parts": [{"text": question}]}]}
     if s["grounding"]:
         body["tools"] = [{"google_search": {}}]
     data, err = gemini(s["model"] + ":generateContent", cfg, body)
@@ -480,7 +480,16 @@ class Handler(SimpleHTTPRequestHandler):
             q = str(body.get("q", "")).strip()[:2000]
             if not q:
                 return self.send_json({"error": "Ask something first."}, 400)
-            result, err = ask(q, cfg)
+            history = body.get("history", [])
+            if not isinstance(history, list) or any(
+                not isinstance(turn, dict) or turn.get("role") != ("user" if i % 2 == 0 else "model")
+                or not isinstance(turn.get("parts"), list) or len(turn["parts"]) != 1
+                or not isinstance(turn["parts"][0], dict) or not isinstance(turn["parts"][0].get("text"), str)
+                for i, turn in enumerate(history)
+            ) or len(history) % 2:
+                return self.send_json({"error": "Invalid conversation history."}, 400)
+            history = [{"role": t["role"], "parts": [{"text": t["parts"][0]["text"]}]} for t in history]
+            result, err = ask(q, cfg, history)
             return self.send_json(result if result else {"error": err}, 200 if result else 502)
         if path == "/api/test":
             model = public_settings(cfg)["model"]

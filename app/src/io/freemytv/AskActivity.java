@@ -29,12 +29,14 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Ask AI, full screen: the question (said holding the remote's mic button, or typed with the TV keyboard), then
- * Gemini's answer in large type, its sources when grounding is on, and what to do next. Back closes it. Built from
+ * Ask AI, full screen: a chat with Gemini. The question (said holding the remote's mic button, or typed with the TV
+ * keyboard), Gemini's answer in large type and its sources when grounding is on; follow-ups go in the box at the
+ * bottom and keep the chat, New chat starts over. Back closes it. Built from
  * plain views (the TV keyboard, focus and scrolling come with them), in the home screen's fonts and colors.
  */
 public final class AskActivity extends Activity {
@@ -46,10 +48,12 @@ public final class AskActivity extends Activity {
     private boolean night;
     private int ink, dim;
     private EditText question;
-    private TextView chip, status, answer;
+    private TextView chip, title, status, answer;
     private LinearLayout sources, actions;
     private ScrollView scroll;
     private int asking;   // the latest question; older answers that arrive late are dropped
+    private boolean waiting;
+    private final List<String> chat = new ArrayList<>();   // user, model, user, model…
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -61,7 +65,6 @@ public final class AskActivity extends Activity {
         Intent in = getIntent();
         String q = in.getStringExtra(QUESTION);
         if (q != null && !q.trim().isEmpty()) {
-            question.setText(q);
             ask(q);
         } else if (VOICE.equals(in.getStringExtra(MODE))) {
             listen();
@@ -109,32 +112,22 @@ public final class AskActivity extends Activity {
         LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         col.addView(chip, chipLp);
 
-        question = new EditText(this);
-        question.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 26);
-        question.setTypeface(Ui.displaySemibold);
-        question.setTextColor(new ColorStateList(new int[][] {{android.R.attr.state_focused}, {}}, new int[] {0xFF1C1C1E, ink}));
-        question.setHintTextColor(new ColorStateList(new int[][] {{android.R.attr.state_focused}, {}}, new int[] {0xFF6E6E73, dim}));
-        question.setHint(Ui.tr("Pergunte qualquer coisa", "Ask anything", "Pregunta lo que quieras"));
-        question.setBackground(pill(false));
-        question.setPadding(dp(18), dp(10), dp(18), dp(10));
-        question.setSingleLine(true);
-        question.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        question.setOnEditorActionListener((v, id, e) -> {
-            boolean enter = e != null && e.getKeyCode() == KeyEvent.KEYCODE_ENTER && e.getAction() == KeyEvent.ACTION_DOWN;
-            if (id == EditorInfo.IME_ACTION_SEARCH || id == EditorInfo.IME_ACTION_DONE || enter) {
-                String q = question.getText().toString();
-                if (!q.trim().isEmpty()) ask(q);
-                return true;
-            }
-            return false;
-        });
-        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        qLp.topMargin = dp(14);
-        col.addView(question, qLp);
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        title = text(22, Ui.displaySemibold, ink);
+        title.setText(Ui.tr("Nova conversa", "New chat", "Nuevo chat"));
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        heading.addView(button(Ui.tr("Nova conversa", "New chat", "Nuevo chat"), v -> newChat()));
+        LinearLayout.LayoutParams hdLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hdLp.topMargin = dp(10);
+        col.addView(heading, hdLp);
 
         status = text(14, Ui.medium, dim);
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sLp.topMargin = dp(16);
+        sLp.topMargin = dp(12);
         col.addView(status, sLp);
 
         scroll = new ScrollView(this);
@@ -155,8 +148,38 @@ public final class AskActivity extends Activity {
         actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actLp.topMargin = dp(14);
+        actLp.topMargin = dp(10);
         col.addView(actions, actLp);
+
+        LinearLayout compose = new LinearLayout(this);
+        compose.setOrientation(LinearLayout.HORIZONTAL);
+        compose.setGravity(Gravity.CENTER_VERTICAL);
+        question = new EditText(this);
+        question.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        question.setTypeface(Ui.medium);
+        question.setTextColor(new ColorStateList(new int[][] {{android.R.attr.state_focused}, {}}, new int[] {0xFF1C1C1E, ink}));
+        question.setHintTextColor(new ColorStateList(new int[][] {{android.R.attr.state_focused}, {}}, new int[] {0xFF6E6E73, dim}));
+        question.setHint(Ui.tr("Pergunte algo ou continue a conversa…", "Ask a question or follow up…", "Pregunta algo o sigue la conversación…"));
+        question.setBackground(pill(false));
+        question.setPadding(dp(18), dp(10), dp(18), dp(10));
+        question.setSingleLine(true);
+        question.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        question.setOnEditorActionListener((v, id, e) -> {
+            boolean enter = e != null && e.getKeyCode() == KeyEvent.KEYCODE_ENTER && e.getAction() == KeyEvent.ACTION_DOWN;
+            if (id == EditorInfo.IME_ACTION_SEARCH || id == EditorInfo.IME_ACTION_DONE || enter) {
+                send();
+                return true;
+            }
+            return false;
+        });
+        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        qLp.rightMargin = dp(12);
+        compose.addView(question, qLp);
+        compose.addView(button(Ui.tr("Enviar", "Send", "Enviar"), v -> send()));
+        compose.addView(button(Ui.tr("Falar", "Speak", "Hablar"), v -> listen()));
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cLp.topMargin = dp(14);
+        col.addView(compose, cLp);
 
         TextView hint = text(11, Ui.medium, night ? 0x99FFFFFF : 0xFF8E8E93);
         hint.setText(Ui.tr("Voltar para fechar", "Back to close", "Atrás para cerrar"));
@@ -195,18 +218,19 @@ public final class AskActivity extends Activity {
         return b;
     }
 
-    private void setActions(boolean settings) {
+    /** After an error: Try again (the same question, keeping the chat) when there's one, and Settings. */
+    private void setActions(String retry) {
         actions.removeAllViews();
-        actions.addView(button(Ui.tr("Falar", "Speak", "Hablar"), v -> listen()));
-        actions.addView(button(Ui.tr("Digitar", "Type", "Escribir"), v -> typeQuestion()));
-        if (settings) actions.addView(button(Ui.tr("Abrir Ajustes", "Open Settings", "Abrir Ajustes"), v -> openSettings()));
+        if (retry != null) actions.addView(button(Ui.tr("Tentar de novo", "Try again", "Reintentar"), v -> ask(retry)));
+        actions.addView(button(Ui.tr("Abrir Ajustes", "Open Settings", "Abrir Ajustes"), v -> openSettings()));
+        actions.getChildAt(0).requestFocus();
     }
 
     // MARK: - Asking
 
     private void typeQuestion() {
-        status.setText(Ui.tr("Digite a pergunta e aperte Enter.", "Type your question, then press Enter.", "Escribe la pregunta y pulsa Enter."));
-        if (actions.getChildCount() == 0) setActions(false);
+        if (chat.isEmpty()) status.setText(Ui.tr("Pergunte qualquer coisa. Você pode continuar a conversa aqui.",
+                "Ask anything. You can follow up here.", "Pregunta lo que quieras. Puedes seguir la conversación aquí."));
         question.requestFocus();
         question.setSelection(question.getText().length());
         main.postDelayed(() -> {
@@ -215,44 +239,71 @@ public final class AskActivity extends Activity {
         }, 150);
     }
 
-    private void ask(String q) {
-        hideKeyboard();
-        final int id = ++asking;
-        final boolean grounded = Keys.grounding(this);
-        status.setText(grounded ? Ui.tr("Pesquisando no Google e escrevendo a resposta…", "Searching Google and writing an answer…", "Buscando en Google y escribiendo la respuesta…")
-                : Ui.tr("Escrevendo a resposta…", "Writing an answer…", "Escribiendo la respuesta…"));
+    private void newChat() {
+        asking++;
+        waiting = false;
+        voice.cancel();
+        chat.clear();
+        title.setText(Ui.tr("Nova conversa", "New chat", "Nuevo chat"));
         answer.setText("");
         sources.removeAllViews();
         actions.removeAllViews();
+        question.setText("");
+        typeQuestion();
+    }
+
+    /** The box at the bottom: a follow-up in this chat (or the first question of a new one). */
+    private void send() {
+        ask(question.getText().toString());
+    }
+
+    private void ask(String asked) {
+        final String q = asked.trim();
+        if (q.isEmpty() || waiting) return;
+        hideKeyboard();
+        final int id = ++asking;
+        waiting = true;
+        final boolean grounded = Keys.grounding(this);
+        title.setText(q);
+        status.setText(grounded ? Ui.tr("Pesquisando no Google e escrevendo a resposta…", "Searching Google and writing an answer…", "Buscando en Google y escribiendo la respuesta…")
+                : Ui.tr("Escrevendo a resposta…", "Writing an answer…", "Escribiendo la respuesta…"));
+        sources.removeAllViews();
+        actions.removeAllViews();
         scroll.requestFocus();
+        final List<String> history = new ArrayList<>(chat);
         Context app = getApplicationContext();
         IO.execute(() -> {
-            Gemini.Answer a = Gemini.ask(app, q);
-            main.post(() -> { if (id == asking && !isFinishing()) show(a, grounded); });
+            Gemini.Answer a = Gemini.ask(app, history, q);
+            main.post(() -> {
+                if (id != asking || isFinishing()) return;
+                waiting = false;
+                show(a, grounded, q);
+            });
         });
     }
 
-    private void show(Gemini.Answer a, boolean grounded) {
+    private void show(Gemini.Answer a, boolean grounded, String q) {
         if ("no_key".equals(a.error)) {
-            status.setText("");
-            answer.setText(Ui.tr("O Pergunte à IA precisa de uma chave do Gemini.\nColoque uma em Ajustes, ou do computador com um comando adb (veja o README).",
+            status.setText(Ui.tr("O Pergunte à IA precisa de uma chave do Gemini.\nColoque uma em Ajustes, ou do computador com um comando adb (veja o README).",
                     "Ask AI needs a Gemini API key.\nAdd one in Settings, or from your computer with one adb command (see the README).",
                     "Pregunta a la IA necesita una clave de Gemini.\nAgrégala en Ajustes, o desde la computadora con un comando adb (ver el README)."));
-            setActions(true);
-            actions.getChildAt(2).requestFocus();
+            setActions(null);
             return;
         }
         if (!a.error.isEmpty()) {
-            status.setText("");
-            answer.setText(a.error);
-            setActions(true);
-            actions.getChildAt(0).requestFocus();
+            status.setText(a.error);
+            setActions(q);
             return;
         }
         status.setText("");
+        question.setText("");
         chip.setText("✦  " + Ui.tr("Pergunte à IA", "Ask AI", "Pregunta a la IA") + "  ·  " + a.model);
-        answer.setText(format(a.text));
-        scroll.scrollTo(0, 0);
+        chat.add(q);
+        chat.add(a.text);
+        answer.setText(format());
+        // Land on the newest turn: its "You ·" line at the top.
+        final int top = chat.size() > 2 ? latestTop : 0;
+        scroll.post(() -> scroll.scrollTo(0, answer.getLayout() == null ? 0 : answer.getLayout().getLineTop(answer.getLayout().getLineForOffset(top))));
         sources.removeAllViews();
         if (!a.sources.isEmpty()) {
             TextView label = text(12.5f, Ui.semibold, dim);
@@ -272,21 +323,40 @@ public final class AskActivity extends Activity {
             none.setText(Ui.tr("Sem fontes da web para esta resposta", "No web sources for this answer", "Sin fuentes web para esta respuesta"));
             sources.addView(none);
         }
-        setActions(false);
         scroll.requestFocus();
     }
 
-    /** The first line large, "- " lines as bullets. */
-    private CharSequence format(String text) {
+    private int latestTop;   // where the newest turn starts in the formatted chat
+
+    /** The whole chat: each question small and dim ("You · …"), then its answer (format). */
+    private CharSequence format() {
         SpannableStringBuilder b = new SpannableStringBuilder();
+        String you = Ui.tr("Você", "You", "Tú") + " · ";
+        for (int i = 0; i + 1 < chat.size(); i += 2) {
+            if (b.length() > 0) b.append("\n\n");
+            latestTop = b.length();
+            if (chat.size() > 2) {
+                int start = b.length();
+                b.append(you).append(chat.get(i)).append("\n");
+                b.setSpan(new AbsoluteSizeSpan(dp(15)), start, b.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                b.setSpan(new android.text.style.ForegroundColorSpan(dim), start, b.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            format(b, chat.get(i + 1));
+        }
+        return b;
+    }
+
+    /** One answer: the first line large, "- " lines as bullets. */
+    private void format(SpannableStringBuilder b, String text) {
         boolean first = true;
+        int begin = b.length();
         for (String line : text.split("\n")) {
             line = line.trim();
             if (line.isEmpty()) continue;
             line = line.replaceAll("\\*\\*(.+?)\\*\\*", "$1");
             boolean bullet = line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ");
             if (bullet) line = "•  " + line.substring(2).trim();
-            if (b.length() > 0) b.append("\n");
+            if (b.length() > begin) b.append("\n");
             int start = b.length();
             b.append(line);
             // A wrapped bullet's next lines start under its text, not under the dot.
@@ -299,7 +369,6 @@ public final class AskActivity extends Activity {
             }
             first = false;
         }
-        return b;
     }
 
     // MARK: - Voice: hold the remote's mic button (Voice)
@@ -331,7 +400,6 @@ public final class AskActivity extends Activity {
         @Override public void failed(String why) {
             hideKeyboard();
             status.setText(why);
-            setActions(false);
         }
     });
 

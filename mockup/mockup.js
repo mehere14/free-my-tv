@@ -712,7 +712,7 @@ function closeLayer(quiet) {
   if (layerName === 'home') return;
   if (layerName === 'radar') closeRadar();
   if (layerName === 'plan') { $('#plan-map').textContent = ''; plan.asking = null; plan.pinsGeo = null; }
-  if (layerName === 'answer' && asking) asking.abort();
+  if (layerName === 'answer' && asking) { asking.abort(); asking = null; }
   stopEditing(false);
   $('#' + layerName).hidden = true;
   layerName = 'home';
@@ -746,6 +746,7 @@ function stopEditing(keep) {
 
 let settings = { hasKey: false, keyHint: '', model: 'gemini-flash-latest', grounding: true };
 let asking = null;
+let conversation = [];
 
 async function loadSettings() {
   try {
@@ -754,9 +755,26 @@ async function loadSettings() {
   renderSettings();
 }
 
-async function askAI(q) {
-  q = q.trim();
+function newChat() {
+  stopEditing(false);
+  if (asking) asking.abort();
+  asking = null;
+  conversation = [];
   openLayer('answer');
+  $('#ai-q').textContent = 'New chat';
+  $('#ai-body').innerHTML = '<div class="inner"><p class="status">Ask anything. You can follow up here.</p></div>';
+  $('#ai-sources').innerHTML = '';
+  $('#ai-actions').innerHTML = '';
+  $('#chat-q').value = '';
+  setFocus(document.querySelector('[data-action="chat-type"]'));
+  scrollAnswer(0, true);
+}
+
+async function askAI(q, followup = false) {
+  q = q.trim();
+  if (!q || (followup && asking)) return;
+  if (!followup) conversation = [];
+  if (layerName !== 'answer') openLayer('answer');
   $('#ai-q').textContent = q;
   $('#ai-model').textContent = settings.model;
   $('#ai-sources').innerHTML = '';
@@ -769,7 +787,7 @@ async function askAI(q) {
   asking = ctrl;
   let res;
   try {
-    const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }), signal: ctrl.signal });
+    const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, history: conversation }), signal: ctrl.signal });
     res = await r.json();
   } catch (e) {
     if (ctrl.signal.aborted) return;
@@ -780,20 +798,28 @@ async function askAI(q) {
   if (res.error === 'no_key') return noKey();
   if (res.error) return showError(res.error, q);
   console.info('[mockup] answer in ' + Math.round(performance.now() - t0) + ' ms, ' + res.sources.length + ' sources');
+  conversation.push({ role: 'user', parts: [{ text: q }] }, { role: 'model', parts: [{ text: res.text }] });
+  $('#chat-q').value = '';
   renderAnswer(res);
 }
 
 function renderAnswer(res) {
-  const lines = res.text.split('\n').map((l) => l.trim()).filter(Boolean);
-  let html = '', list = false;
-  lines.forEach((l, i) => {
-    const bullet = /^[-*•]\s+/.test(l);
-    if (bullet && !list) { html += '<ul>'; list = true; }
-    if (!bullet && list) { html += '</ul>'; list = false; }
-    const text = esc(l.replace(/^[-*•]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1'));
-    html += bullet ? '<li>' + text + '</li>' : '<p' + (i === 0 ? ' class="lead"' : '') + '>' + text + '</p>';
+  let html = '';
+  conversation.forEach((turn) => {
+    if (turn.role === 'user') { html += '<div class="chat-user">You · ' + esc(turn.parts[0].text) + '</div>'; return; }
+    html += '<div class="chat-turn">';
+    const lines = turn.parts[0].text.split('\n').map((l) => l.trim()).filter(Boolean);
+    let list = false;
+    lines.forEach((l, i) => {
+      const bullet = /^[-*•]\s+/.test(l);
+      if (bullet && !list) { html += '<ul>'; list = true; }
+      if (!bullet && list) { html += '</ul>'; list = false; }
+      const text = esc(l.replace(/^[-*•]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1'));
+      html += bullet ? '<li>' + text + '</li>' : '<p' + (i === 0 ? ' class="lead"' : '') + '>' + text + '</p>';
+    });
+    if (list) html += '</ul>';
+    html += '</div>';
   });
-  if (list) html += '</ul>';
   $('#ai-body').innerHTML = '<div class="inner">' + html + '</div>';
   if (res.model) $('#ai-model').textContent = res.model;
   $('#ai-sources').innerHTML = res.sources.length
@@ -803,6 +829,7 @@ function renderAnswer(res) {
   focused = null;
   setFocus(document.querySelector('#ai-sources .chip') || $('#ai-body'));
   scrollAnswer(0, true);
+  scrollAnswer(Number.MAX_SAFE_INTEGER);
 }
 
 function noKey() {
@@ -954,7 +981,11 @@ function activate() {
     case 'edit-postal': $('#in-postal').value = settings.postal || ''; startEditing($('#in-postal'), el); $('#set-postal').hidden = true; break;
     case 'launch': toast('Opens ' + APPS.find((a) => a.key === el.dataset.key).name + ' on the TV.'); break;
     case 'source': window.open(el.dataset.uri, '_blank', 'noopener'); break;
-    case 'retry': askAI(el.dataset.q); break;
+    case 'retry': askAI(el.dataset.q, true); break;
+    case 'new-chat': newChat(); break;
+    case 'chat-type': startEditing($('#chat-q')); break;
+    case 'chat-send': askAI($('#chat-q').value, true); break;
+    case 'chat-voice': if (!listen((t) => askAI(t, true))) startEditing($('#chat-q')); break;
     case 'radar-toggle':
       radar.playing = !radar.playing;
       $('#radar-status').textContent = radar.playing ? 'Playing' : 'Paused';
@@ -984,6 +1015,12 @@ function commitEdit() {
     const text = input.value;
     stopEditing(true);
     searchPlaces(text);
+    return;
+  }
+  if (input.id === 'chat-q') {
+    const text = input.value;
+    stopEditing(true);
+    if (text.trim()) askAI(text, true);
     return;
   }
   if (input.id === 'q') {
@@ -1031,7 +1068,7 @@ addEventListener('keydown', (e) => {
   if (editing) {
     if (k === 'Enter') { e.preventDefault(); commitEdit(); }
     else if (k === 'Escape') { e.preventDefault(); stopEditing(false); showValues(); }
-    else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); const keep = editing.input.id === 'q' || editing.input.id === 'plan-q'; stopEditing(keep); showValues(); move(k === 'ArrowUp' ? 'up' : 'down'); }
+    else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); const keep = editing.input.id === 'q' || editing.input.id === 'plan-q' || editing.input.id === 'chat-q'; stopEditing(keep); showValues(); move(k === 'ArrowUp' ? 'up' : 'down'); }
     return;
   }
   if (k.startsWith('Arrow')) {
@@ -1039,7 +1076,7 @@ addEventListener('keydown', (e) => {
     const dir = k.slice(5).toLowerCase();
     if (layerName === 'radar') { if (dir === 'left' || dir === 'right') stepRadar(dir === 'left' ? -1 : 1); return; }
     if (layerName === 'answer' && focused && focused.id === 'ai-body' && (dir === 'up' || dir === 'down') && scrollAnswer(dir === 'up' ? -112 : 112)) return;
-    if (layerName === 'answer' && dir === 'up' && focused && focused.classList.contains('chip') && $('#ai-body .inner')) { setFocus($('#ai-body')); return; }
+    if (layerName === 'answer' && dir === 'up' && focused && focused.closest('#ai-sources') && $('#ai-body .inner')) { setFocus($('#ai-body')); return; }
     move(dir);
   } else if (k === 'Enter' || k === ' ') {
     e.preventDefault();
