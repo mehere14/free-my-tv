@@ -387,11 +387,10 @@ public final class PlanActivity extends Activity {
         if (imm != null) imm.hideSoftInputFromWindow(search.getWindowToken(), 0);
     }
 
-    /** The on-screen Speak button can't turn the remote's microphone on: it says how. */
+    /** The on-screen Speak button: listens until you stop talking. */
     private void listen() {
         hideKeyboard();
-        hint(Ui.tr("Segure o botão do microfone do controle e diga um lugar.", "Hold the mic button on your remote and say a place.",
-                "Mantén pulsado el botón del micrófono del control y di un lugar."));
+        voice.start(false);
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {

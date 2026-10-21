@@ -304,11 +304,10 @@ public final class AskActivity extends Activity {
 
     // MARK: - Voice: hold the remote's mic button (Voice)
 
-    /** The on-screen Speak button can't turn the remote's microphone on: it says how. */
+    /** The on-screen Speak button (and Ask AI from home): listens until you stop talking. */
     private void listen() {
         hideKeyboard();
-        status.setText(Ui.tr("Segure o botão do microfone do controle e fale.", "Hold the mic button on your remote and speak.",
-                "Mantén pulsado el botón del micrófono del control y habla."));
+        voice.start(false);
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {

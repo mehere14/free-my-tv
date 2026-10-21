@@ -30,7 +30,7 @@ final class Voice implements RecognitionListener {
     private final Activity activity;
     private final Listener listener;
     private SpeechRecognizer recognizer;
-    private boolean listening, pending;
+    private boolean listening, pending, pendingTap;
 
     Voice(Activity a, Listener l) {
         activity = a;
@@ -45,18 +45,23 @@ final class Voice implements RecognitionListener {
     /** From the activity's dispatchKeyEvent: press starts listening, release ends it. True when it was the mic button. */
     boolean onKey(KeyEvent e) {
         if (!isMicKey(e.getKeyCode())) return false;
-        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) start();
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) start(true);
         else if (e.getAction() == KeyEvent.ACTION_UP) stop();
         return true;
     }
 
-    void start() {
+    /**
+     * Starts listening: held (the remote's mic button, until it's let go) or tapped (an on-screen button: the
+     * recognizer stops by itself when you stop talking).
+     */
+    void start(boolean held) {
         if (!remotePaired()) {
             listener.failed(NOT_PAIRED);
             return;
         }
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pending = true;
+            pendingTap = !held;
             activity.requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, PERMISSION);
             return;
         }
@@ -70,15 +75,15 @@ final class Voice implements RecognitionListener {
             recognizer.setRecognitionListener(this);
         }
         listening = true;
-        listener.status(Ui.tr("Ouvindo… solte o botão quando terminar", "Listening… let go of the button when you're done",
-                "Escuchando… suelta el botón cuando termines"));
+        listener.status(held ? Ui.tr("Ouvindo… solte o botão quando terminar", "Listening… let go of the button when you're done",
+                "Escuchando… suelta el botón cuando termines")
+                : Ui.tr("Ouvindo… fale agora", "Listening… speak now", "Escuchando… habla ahora"));
         recognizer.startListening(new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Ui.locale().toLanguageTag()));
     }
 
-    /** The button was let go: what was heard so far becomes the result. */
     /**
      * Whether a Bluetooth remote is paired: this TV has no microphone of its own, so without one nothing can hear you
      * (Google Assistant neither). Unknown (no Bluetooth, or not allowed to ask) counts as paired: try anyway.
@@ -97,6 +102,7 @@ final class Voice implements RecognitionListener {
             "Your remote's microphone isn't connected: this TV has no microphone of its own. Pair the remote over Bluetooth in Settings → Remotes & Accessories, then hold its mic button.",
             "El micrófono del control no está conectado: este TV no tiene micrófono propio. Empareja el control por Bluetooth en Ajustes → Controles remotos y accesorios, y luego mantén pulsado su botón de micrófono.");
 
+    /** The button was let go: what was heard so far becomes the result. */
     void stop() {
         if (recognizer != null && listening) recognizer.stopListening();
     }
@@ -116,6 +122,7 @@ final class Voice implements RecognitionListener {
     void onPermission(int code, int[] results) {
         if (code != PERMISSION) return;
         boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (granted && pending && pendingTap) { pending = false; start(false); return; }
         if (granted && pending) listener.status(Ui.tr("Pronto: segure o botão do microfone e fale.", "Ready: hold the mic button and speak.",
                 "Listo: mantén pulsado el botón del micrófono y habla."));
         else if (!granted) listener.failed(Ui.tr("Sem o microfone, digite.", "Without the microphone, type instead.", "Sin el micrófono, escribe."));

@@ -1836,13 +1836,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (topIndex < 3) {
                 click.open();
                 if (topIndex == T_MIC) {
-                    // The remote's own voice search: Google Assistant on Android TV.
-                    try {
-                        activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_ASSIST)
-                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
-                    } catch (RuntimeException e) {
-                        showToast(Ui.tr("Esta TV não tem pesquisa por voz.", "This TV has no voice search.", "Este TV no tiene búsqueda por voz."));
-                    }
+                    // Voice goes to Ask AI too: on this TV, Google's voice search (ACTION_ASSIST) doesn't start listening.
+                    activity.startActivity(new android.content.Intent(activity, AskActivity.class)
+                            .putExtra(AskActivity.MODE, AskActivity.VOICE));
                 } else {
                     // Typed text goes to Ask AI: on this TV, Google TV search ignores a query handed to it (tested).
                     activity.startActivity(new android.content.Intent(activity, AskActivity.class)
