@@ -4,8 +4,13 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -46,6 +51,7 @@ public final class AskActivity extends Activity {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private boolean night;
+    private Backdrop photo;   // NASA's photo on the home screen, if any: blurred behind the chat
     private int ink, dim;
     private EditText question;
     private TextView chip, title, status, answer;
@@ -58,7 +64,9 @@ public final class AskActivity extends Activity {
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         Ui.init(this);
-        night = HomeData.get(this).isNight(System.currentTimeMillis());
+        photo = Apod.get(this).backdrop();
+        // Over NASA's photo the chat takes the home screen's night look (white text on smoked glass).
+        night = photo != null || HomeData.get(this).isNight(System.currentTimeMillis());
         ink = night ? 0xFFF5F5F7 : 0xFF1D1D1F;
         dim = night ? 0xADFFFFFF : 0xFF6E6E73;
         setContentView(build());
@@ -96,8 +104,16 @@ public final class AskActivity extends Activity {
 
     private View build() {
         FrameLayout root = new FrameLayout(this);
-        root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                night ? new int[] {0xFF1C1C1E, 0xFF0B0B0D} : new int[] {0xFFF5F5F7, 0xFFE2E2E7}));
+        if (photo != null && photo.frost != null) {
+            // The home screen's photo, already blurred (its frosted version), dimmed so the answer stays readable.
+            Bitmap blur = Bitmap.createBitmap(photo.frost, Backdrop.FW, Backdrop.FH, Bitmap.Config.ARGB_8888);
+            BitmapDrawable bg = new BitmapDrawable(getResources(), blur);
+            bg.setFilterBitmap(true);
+            root.setBackground(new LayerDrawable(new Drawable[] {bg, new ColorDrawable(0x8C040811)}));
+        } else {
+            root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    night ? new int[] {0xFF1C1C1E, 0xFF0B0B0D} : new int[] {0xFFF5F5F7, 0xFFE2E2E7}));
+        }
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(80), dp(40), dp(80), dp(30));

@@ -97,6 +97,28 @@ final class Backdrop {
         return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
     }
 
+    /**
+     * NASA's picture of the day, shown sharp behind smoked glass (as in the mockup): a dark wash top and bottom, baked
+     * in, then the frosted and glass versions of the result. Day and night use the same pictures (no light/night set).
+     */
+    static Backdrop apod(java.io.File f) throws java.io.IOException {
+        Bitmap[] p = photo(f, W, H, null);
+        p[1].recycle();
+        Bitmap out = p[0];
+        Paint wash = new Paint(Paint.DITHER_FLAG);
+        wash.setShader(new LinearGradient(0, 0, 0, H, new int[] {night(0.35f), night(0.12f), night(0.58f)},
+                new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP));
+        new Canvas(out).drawRect(0, 0, W, H, wash);
+        int[] frost = reduce(out, FW, FH, 3, 3);
+        int[] glass = reduce(out, GW, GH, 2, 2);
+        return new Backdrop(gpu(out), frost, glass, null, null, null, glass, null, null);
+    }
+
+    /** The mockup's deep navy (4, 7, 16) at opacity a. */
+    private static int night(float a) {
+        return black(a) | 0x040710;
+    }
+
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
     static final int PHOTO_FROST = 6;
 

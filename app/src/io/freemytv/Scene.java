@@ -28,6 +28,12 @@ final class Scene {
     private final Paint flatFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint flatRim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fallback = new Paint();
+    // Android 9 to 12 (no AGSL): the glass shows the matching piece of the blurred photo, then the tint.
+    private final Paint flatFrost = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final android.graphics.Matrix flatMatrix = new android.graphics.Matrix();
+    private BitmapShader flatShader;
+    private boolean photoFrost;
+    private float offX, offY;
     private final Recording auroraNode = Recording.create("aurora");
     // The layer is drawn at a quarter size and scaled up: filtered, its soft shapes stay soft instead of stepping.
     private final Paint layerPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -161,7 +167,7 @@ final class Scene {
                 float specular, float alpha) {
         if (alpha <= 0.004f) return;
         if (liquid == null) {
-            glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
+            glass(c, r, radius, tint, Math.max(photoFrost ? 0.28f : 0.5f, tintAlpha), 0, 0, lift, 1, alpha);
             return;
         }
         liquid.setFloatUniform("center", r.centerX(), r.centerY());
@@ -179,10 +185,22 @@ final class Scene {
 
     /** The glass now reads the blurred background image (Backdrop.FW × FH, ARGB). */
     void setFrost(int[] pixels) {
+        setFrost(pixels, true);
+    }
+
+    /** photo = false: a flat color (no photo behind the glass), which the fallback glass doesn't need to draw. */
+    void setFrost(int[] pixels, boolean photo) {
         if (frostImage == null) frostImage = Bitmap.createBitmap(Backdrop.FW, Backdrop.FH, Bitmap.Config.ARGB_8888);
         frostImage.setPixels(pixels, 0, Backdrop.FW, 0, 0, Backdrop.FW, Backdrop.FH);
         imageFrost = true;
-        if (glass == null) return;
+        photoFrost = photo;
+        if (glass == null) {
+            if (flatShader == null) {
+                flatShader = new BitmapShader(frostImage, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                flatFrost.setShader(flatShader);
+            }
+            return;
+        }
         BitmapShader s = new BitmapShader(frostImage, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
         s.setFilterMode(BitmapShader.FILTER_MODE_LINEAR);
         glass.setInputShader("frost", s);
@@ -193,6 +211,7 @@ final class Scene {
     void clearFrost() {
         if (!imageFrost) return;
         imageFrost = false;
+        photoFrost = false;
         setFrostScale();
         advance(time);
     }
@@ -204,6 +223,8 @@ final class Scene {
 
     /** Offset (px) of the layer that will draw glass, if it was moved on screen without being redrawn. */
     void setOffset(float x, float y) {
+        offX = x;
+        offY = y;
         if (glass != null) glass.setFloatUniform("offset", x, y);
         if (liquid != null) liquid.setFloatUniform("offset", x, y);
     }
@@ -247,7 +268,16 @@ final class Scene {
     void glass(Canvas c, RectF r, float radius, int tint, float tintAlpha, int glow, float glowAlpha, float lift, float body, float alpha) {
         if (alpha <= 0.004f) return;
         if (glass == null) {
-            if (body > 0) {
+            if (body > 0 && photoFrost && flatShader != null) {
+                // Frosted glass from the precomputed blur: the photo under this rectangle, the tint, then the rim.
+                flatMatrix.setScale((float) w / Backdrop.FW, (float) h / Backdrop.FH);
+                flatMatrix.postTranslate(-offX, -offY);
+                flatShader.setLocalMatrix(flatMatrix);
+                flatFrost.setAlpha(Math.round(255 * Math.min(1, alpha)));
+                c.drawRoundRect(r, radius, radius, flatFrost);
+                flatFill.setColor(Ui.alpha(tint | 0xFF000000, tintAlpha * Math.min(1, alpha)));
+                c.drawRoundRect(r, radius, radius, flatFill);
+            } else if (body > 0) {
                 flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.max(0.35f, tintAlpha)));
                 c.drawRoundRect(r, radius, radius, flatFill);
             }

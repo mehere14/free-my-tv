@@ -84,6 +84,14 @@
             android:theme="@style/FreeMyTV.Home" />
 
         <activity
+            android:name=".ApodActivity"
+            android:process=":home"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/FreeMyTV.Home" />
+
+        <activity
             android:name=".RadarActivity"
             android:process=":home"
             android:exported="false"

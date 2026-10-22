@@ -56,7 +56,8 @@ import java.util.function.Consumer;
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener,
+        Apod.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -95,6 +96,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Shadows a little softer than tvOS (the approved mockup): resting and the extra when focused, day and night. */
     private static final float SH_DAY = 0.07f, SH_NIGHT = 0.22f, SH_FOCUS_DAY = 0.13f, SH_FOCUS_NIGHT = 0.2f;
     private static final int Z_TOP = 4, Z_CARDS = 5;
+    /** NASA's photo: ‹ and › (newer, older) on the left of the bottom edge, ⓘ (about this photo) on the right. */
+    private static final int Z_APOD = 6, A_NEWER = 0, A_OLDER = 1, A_INFO = 2;
     /** The search row and the corner buttons (Z_TOP), and the focusable cards (Z_CARDS). */
     private static final int T_FIELD = 0, T_MIC = 1, T_ASK = 2, C_WEATHER = 0, C_RADAR = 1, C_PLAN = 2;
 
@@ -102,6 +105,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
+    private final Apod apod;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -187,6 +191,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring heroFocus = new Spring(0.28f, 0.85f, 0);
     private final RectF heroButton = new RectF();
     private Backdrop bgFrom, bgTo;     // null = gradient (no photo)
+    private float photoDark;           // 1 with NASA's photo behind: the night look (white text, smoked glass)
+    private String creditText = "", apodPosition = "";
+    private final Spring[] apodFocus = new Spring[3];
+    private final RectF[] apodRects = new RectF[3];
+    private final RectF pickerRect = new RectF();
+    private int apodIndex;
+    private Paint apodGlyph, apodCount, infoGlyph;
+    private float glyphDy, countDy, infoDy;   // baseline offsets that center each glyph
     private final int[] frostMix = new int[Backdrop.FW * Backdrop.FH];
 
     // Bottom drawer
@@ -227,7 +239,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, bigTemp, hourPaint, hourTemp;
     private Paint sheetTitle;
-    private TextPaint titlePaint, gridLabel, toastPaint;
+    private TextPaint titlePaint, gridLabel, toastPaint, creditPaint;
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -300,6 +312,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!running) return;
             data.refreshIfStale();
             recs.refreshIfStale();
+            apod.refreshIfStale();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -314,6 +327,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        apod = Apod.get(a);
         click = new Click(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
@@ -344,6 +358,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) {
             cardFocus[i] = new Spring(0.32f, 0.78f, 0);
             cardRects[i] = new RectF();
+            apodFocus[i] = new Spring(0.26f, 0.85f, 0);
+            apodRects[i] = new RectF();
         }
         makeLightButtons();
         recs.setLight(true);
@@ -368,8 +384,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastStep = 0;
         data.addListener(this);
         recs.addListener(this);
+        apod.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
+        apod.refreshIfStale();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -403,6 +421,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(tick);
         data.removeListener(this);
         recs.removeListener(this);
+        apod.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -457,6 +476,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         updatePicks();
     }
 
+    @Override public void onApod() {
+        if (apod.takeFailed()) {
+            showToast(Ui.tr("Não foi possível carregar esta foto da NASA. Tente de novo.", "Couldn't load this NASA photo. Try again.",
+                    "No se pudo cargar esta foto de la NASA. Inténtalo de nuevo."));
+        }
+        updatePicks();
+    }
+
     private void invalidateAll() {
         for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer}) v.invalidate();
     }
@@ -472,7 +499,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
         measure(platter, width, Math.round(320 * kk));
-        measure(tiles, width, Math.round(270 * kk));
+        measure(tiles, width, Math.round(290 * kk));   // down to the bottom edge: the photo's row is drawn here too
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
@@ -524,6 +551,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void makePaints() {
         labelPaint = Ui.text(Ui.medium, 25 * k, 0xC7FFFFFF);
+        creditPaint = new TextPaint(Ui.text(Ui.medium, 16 * k, 0xC7FFFFFF));
+        creditPaint.setTextAlign(Paint.Align.RIGHT);
+        creditPaint.setShadowLayer(4 * k, 0, k, 0xFF000000);
+        apodGlyph = Ui.text(Ui.regular, 40 * k, 0xFFFFFFFF);
+        apodGlyph.setTextAlign(Paint.Align.CENTER);
+        apodCount = Ui.numbers(Ui.medium, 20 * k, 0xFFFFFFFF);
+        apodCount.setTextAlign(Paint.Align.CENTER);
+        infoGlyph = Ui.text(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD), 30 * k, 0xFFFFFFFF);
+        infoGlyph.setTextAlign(Paint.Align.CENTER);
+        glyphDy = middle(apodGlyph);
+        countDy = middle(apodCount);
+        infoDy = middle(infoGlyph);
         labelPaint.setLetterSpacing(0.1f);
         titlePaint = new TextPaint(Ui.text(Ui.displayMedium, 76 * k, 0xFFFFFFFF));
         titlePaint.setLetterSpacing(0.005f);
@@ -592,6 +631,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt);
         boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
+        tilesMoving |= step(apodFocus, dt);   // the bottom row is drawn with the tiles
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
@@ -608,9 +648,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // drop frames (measured: ~50 ms of GPU per frame). The app tiles have no glass; the top buttons fade out as
         // they rise; the drawer is drawn resting in place; the glass shelf is redrawn once the drawer stops, so the
         // glass shows the background where it ended up.
-        if (tilesMoving || tilesDirty) tiles.invalidate();
+        if (tilesMoving || tilesDirty || bgFading) tiles.invalidate();
         if (statusMoving || statusDirty || bgFading) status.invalidate();
-        if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
+        if (heroMoving || heroDirty || heroFading || bgFading) heroLayer.invalidate();
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
         if (drawerMoving || bgFading) sky.invalidate();
@@ -796,7 +836,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int color = blend(0xFFEBEBF0, 0xFF141416, night);
         java.util.Arrays.fill(neutralFrostPx, color);
         java.util.Arrays.fill(neutralGlassPx, color);
-        scene.setFrost(neutralFrostPx);
+        scene.setFrost(neutralFrostPx, false);
         scene.setGlassImage(neutralGlassPx);
         nightPair = false;
     }
@@ -865,7 +905,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** How dark it is: 0 = day, 1 = night (in between during the transition). */
     private float dark() {
-        return night;
+        return Math.max(night, photoDark);
+    }
+
+    /** How much of NASA's photo is showing (0 to 1), so the look follows the cross-fade. */
+    private void updatePhotoDark(long up) {
+        float to = bgTo != null && bgTo.image != null ? 1 : 0;
+        float from = bgFrom != null && bgFrom.image != null ? 1 : 0;
+        float was = photoDark;
+        photoDark = bgFadeAt == 0 ? to : from + (to - from) * fadeEase(bgFadeAt, up);
+        if ((was > 0.5f) != (photoDark > 0.5f)) refreshRadar();   // the dark map behind smoked glass
     }
 
     /** The day color or the night color, depending on the night value (blended during the transition). */
@@ -894,6 +943,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean tickBackgroundFade(long up) {
         if (bgFadeAt == 0) return false;
         float e = fadeEase(bgFadeAt, up);
+        updatePhotoDark(up);
         if (bgTo != null && bgFrom != null && glassOf(bgFrom) != null && glassOf(bgTo) != null) {
             int[] from = frostOf(bgFrom), to = frostOf(bgTo);
             for (int i = 0; i < frostMix.length; i++) frostMix[i] = mix(from[i], to[i], e);
@@ -903,6 +953,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (e >= 1) {
             bgFadeAt = 0;
             bgFrom = null;
+            updatePhotoDark(up);
             if (bgTo == null) {
                 neutralGlass();
             } else {
@@ -1083,6 +1134,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawTiles(Canvas c) {
+        drawApodRow(c);
         // The focused one last: it grows over its neighbors without being covered by them.
         int top = -1;
         float most = 0.02f;
@@ -1434,6 +1486,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (snap) heroFocus.snap(heroFocus.target);
         boolean topChanged = aim(topFocus, !sheetOpen && zone == Z_TOP ? topIndex : -1, snap);
         heroChanged |= aim(cardFocus, !sheetOpen && zone == Z_CARDS ? cardIndex : -1, snap) | topChanged;
+        tilesChanged |= aim(apodFocus, !sheetOpen && zone == Z_APOD ? apodIndex : -1, snap);
         statusChanged |= topChanged;
         tilesDirty |= snap || tilesChanged;
         statusDirty |= snap || statusChanged;
@@ -1848,6 +1901,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
+        } else if (zone == Z_APOD) {
+            if (apodIndex == A_INFO) {
+                click.open();
+                activity.startActivity(new android.content.Intent(activity, ApodActivity.class));
+            } else {
+                click.move();
+                apod.select(apod.index() + (apodIndex == A_NEWER ? -1 : 1));
+            }
+            return;
         } else if (zone == Z_CARDS) {
             click.open();
             if (cardIndex == C_PLAN) {
@@ -1903,6 +1965,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
+        if (apodRow()) for (int i = A_NEWER; i <= A_INFO; i++) out.add(a11yId(Z_APOD, i));
     }
 
     private String a11yText(int id) {
@@ -1923,6 +1986,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         : Ui.tr("Clima, ", "Weather, ", "Clima, ") + HomeData.degrees(wx.temp) + ", " + HomeData.condition(wx.code, wx.isDay);
             case Z_SHELF: return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
+            case Z_APOD:
+                if (i == A_INFO) return Ui.tr("Sobre esta foto", "About this photo", "Acerca de esta foto");
+                return (i == A_NEWER ? Ui.tr("Foto mais recente", "Newer photo", "Foto más reciente")
+                        : Ui.tr("Foto mais antiga", "Older photo", "Foto más antigua")) + ", " + apodPosition;
             default: return "";
         }
     }
@@ -1964,6 +2031,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 a11yRect.set(drawerRects[i]);
                 dy = drawerOpen ? 0 : h;
                 break;
+            case Z_APOD:
+                if (i > A_INFO || !apodRow()) return false;
+                a11yRect.set(apodRects[i]);
+                dy = tiles.getTranslationY();
+                break;
             default:
                 return false;
         }
@@ -1982,6 +2054,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS: return a11yId(Z_CARDS, cardIndex);
             case Z_SHELF: return shelf.isEmpty() ? -1 : a11yId(Z_SHELF, shelfIndex);
             case Z_DRAWER: return drawerItems.isEmpty() ? -1 : a11yId(Z_DRAWER, drawerIndex);
+            case Z_APOD: return a11yId(Z_APOD, apodIndex);
             default: return -1;
         }
     }
@@ -2019,6 +2092,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (drawerOpen) closeDrawer();
                 shelfIndex = i;
                 break;
+            case Z_APOD:
+                if (i > A_INFO || !apodRow()) return;
+                if (drawerOpen) closeDrawer();
+                apodIndex = i;
+                break;
             default:
                 return;
         }
@@ -2053,13 +2131,40 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float bx = cardRects[C_RADAR].right + g;
         timeBox.set(bx, ct, right, ct + L_BOX_H * k);
         cardRects[C_PLAN].set(bx, ct + ch - L_BOX_H * k, right, ct + ch);
+        // The bottom row (the mockup's sizes x 2), in the strip under the shelf's glass.
+        float pb = h - 10 * k, ph = 44 * k, bs = 40 * k, pin = (ph - bs) / 2;
+        pickerRect.set(MARGIN * k, pb - ph, MARGIN * k + pin + bs + 12 * k + 84 * k + 12 * k + bs + pin, pb);
+        apodRects[A_NEWER].set(pickerRect.left + pin, pickerRect.top + pin, pickerRect.left + pin + bs, pickerRect.bottom - pin);
+        apodRects[A_OLDER].set(pickerRect.right - pin - bs, apodRects[A_NEWER].top, pickerRect.right - pin, apodRects[A_NEWER].bottom);
+        apodRects[A_INFO].set(w - 36 * k - bs, h - 12 * k - bs, w - 36 * k, h - 12 * k);
+        if (creditPaint != null) {
+            creditText = "";   // the credit's width depends on this layout
+            updateCards();
+        }
         heroDirty = statusDirty = true;
         refreshRadar();
     }
 
-    /** No recommendation cards on this home screen: the background stays the gradient (a photo shown before fades out). */
+    /**
+     * No recommendation cards on this home screen: the background is NASA's picture of the day, or the gradient until
+     * the first one arrives (a TMDB photo shown before fades out).
+     */
     private void updateCards() {
-        if (bgTo != null) showBackdrop(null);
+        Backdrop b = apod.backdrop();
+        String credit = b == null ? "" : TextUtils.ellipsize(apod.credit(), creditPaint,
+                Math.max(1, apodRects[A_INFO].left - 20 * k - (pickerRect.right + 40 * k)), TextUtils.TruncateAt.END).toString();
+        String position = apod.loading() ? Ui.tr("Carregando…", "Loading…", "Cargando…")
+                : apod.count() == 0 ? "" : (apod.index() + 1) + " / " + apod.count();
+        if (!credit.equals(creditText) || !position.equals(apodPosition)) {
+            creditText = credit;
+            apodPosition = position;
+            tilesDirty = true;
+        }
+        if (b == null && zone == Z_APOD) {
+            zone = Z_SHELF;
+            retarget(false);
+        }
+        showBackdrop(b);
         heroDirty = true;
     }
 
@@ -2069,7 +2174,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (r.isEmpty()) return;
         HomeData.Weather wx = data.weather;
         boolean snow = !Double.isNaN(wx.temp) && (wx.temp <= 0.5 || "snowflake".equals(Symbols.weather(wx.code, true)));
-        radar.refreshIfStale(getContext(), Math.round(r.width()), Math.round(r.height()), night > 0.5f, snow, () -> {
+        radar.refreshIfStale(getContext(), Math.round(r.width()), Math.round(r.height()), dark() > 0.5f, snow, () -> {
             updateMetas();
             heroDirty = true;
             heroLayer.invalidate();
@@ -2085,7 +2190,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
         boolean fading = bgFadeAt != 0;
         // Drawer open: the background lightens (by day) or darkens (at night), as a filter on the drawing itself.
-        android.graphics.ColorFilter v = veil(tone(0.32f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, night));
+        android.graphics.ColorFilter v = veil(tone(0.32f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, dark()));
         if (lightGradient == null) lightGradient = new LinearGradient(0, 0, 0, h, 0xFFF5F5F7, 0xFFE2E2E7, Shader.TileMode.CLAMP);
         if (nightGradient == null) nightGradient = new LinearGradient(0, 0, 0, h, 0xFF1C1C1E, 0xFF0B0B0D, Shader.TileMode.CLAMP);
         fill.setColorFilter(v);
@@ -2135,6 +2240,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
+        if (b.image != null) {   // NASA's photo, sharp (the same by day and at night)
+            drawImage(c, b.image, alpha);
+            return;
+        }
         if (night < 0.999f || b.nightImage == null) drawImage(c, b.lightImage, alpha);
         if (night > 0.001f) drawImage(c, b.nightImage, alpha * night);
     }
@@ -2504,9 +2613,34 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean moveLight(int dx, int dy) {
         switch (zone) {
             case Z_SHELF:
-                if (dy >= 0 || shelf.isEmpty()) return false;
+                if (dy > 0) {
+                    // ↓ goes to the photo's row (↓ again opens the drawer); without the photo, straight to the drawer.
+                    if (!apodRow()) return false;
+                    zone = Z_APOD;
+                    apodIndex = shelf.isEmpty() || tileRects[shelfIndex].centerX() < w / 2f ? A_NEWER : A_INFO;
+                    break;
+                }
+                if (dy == 0 || shelf.isEmpty()) return false;
                 zone = Z_CARDS;
                 cardIndex = nearest(cardRects, 3, tileRects[shelfIndex].centerX());
+                break;
+            case Z_APOD:
+                if (dx != 0) {
+                    int next = Math.max(A_NEWER, Math.min(A_INFO, apodIndex + dx));
+                    if (next == apodIndex) return true;
+                    apodIndex = next;
+                } else if (dy < 0) {
+                    if (shelf.isEmpty()) {
+                        zone = Z_CARDS;
+                        cardIndex = apodIndex == A_INFO ? C_PLAN : C_WEATHER;
+                    } else {
+                        zone = Z_SHELF;
+                        shelfIndex = nearest(tileRects, tileRects.length, apodRects[apodIndex].centerX());
+                    }
+                } else {
+                    if (drawerItems.isEmpty()) return true;
+                    openDrawer();
+                }
                 break;
             case Z_CARDS:
                 if (dx != 0) {
@@ -2516,6 +2650,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = cardIndex == C_WEATHER ? T_FIELD : T_ASK;
+                } else if (shelf.isEmpty() && apodRow()) {
+                    zone = Z_APOD;
+                    apodIndex = cardIndex == C_WEATHER ? A_NEWER : A_INFO;
                 } else {
                     zone = Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
@@ -2544,6 +2681,63 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         retarget(false);
         click.move();
         return true;
+    }
+
+    /** The photo's row shows (and takes focus) while NASA's photo is the background. */
+    private boolean apodRow() {
+        return bgTo != null && bgTo.image != null && apod.count() > 0;
+    }
+
+    /**
+     * Under the shelf, over the photo: the picker (‹ 1 / 5 ›), the credit and ⓘ. Focused buttons turn white with dark
+     * glyphs (the mockup's #apod-picker and #apod-info).
+     */
+    private void drawApodRow(Canvas c) {
+        float a = photoDark;
+        if (a <= 0.004f || apod.count() == 0) return;
+        fill.setShader(null);
+        fill.setColor(Ui.alpha(0xFF0A0F19, 0.55f * a));
+        c.drawRoundRect(pickerRect, pickerRect.height() / 2, pickerRect.height() / 2, fill);
+        for (int i = A_NEWER; i <= A_OLDER; i++) {
+            RectF r = apodRects[i];
+            float f = Ui.clamp(apodFocus[i].value);
+            if (f > 0.01f) {
+                fill.setColor(Ui.alpha(0xFFFFFFFF, f * a));
+                c.drawCircle(r.centerX(), r.centerY(), r.width() / 2, fill);
+            }
+            apodGlyph.setColor(Ui.alpha(blend(0xFFFFFFFF, 0xFF151820, f), a));
+            c.drawText(i == A_NEWER ? "‹" : "›", r.centerX(), r.centerY() + glyphDy, apodGlyph);
+        }
+        apodCount.setColor(Ui.alpha(0xFFFFFFFF, a));
+        c.drawText(apodPosition, (apodRects[A_NEWER].right + apodRects[A_OLDER].left) / 2, pickerRect.centerY() + countDy, apodCount);
+
+        if (!creditText.isEmpty()) {
+            creditPaint.setAlpha(Math.round(199 * a));
+            c.drawText(creditText, apodRects[A_INFO].left - 20 * k, h - 22 * k, creditPaint);
+        }
+
+        RectF r = apodRects[A_INFO];
+        float f = Ui.clamp(apodFocus[A_INFO].value), cx = r.centerX(), cy = r.centerY(), rad = r.width() / 2;
+        if (f > 0.01f) {
+            fill.setColor(Ui.alpha(0xFFFFFFFF, 0.25f * f * a));
+            c.drawCircle(cx, cy, rad + 6 * k, fill);
+        }
+        fill.setColor(Ui.alpha(blend(0xFF0A0F19, 0xFFFFFFFF, f), blend2(0.4f, 1, f) * a));
+        c.drawCircle(cx, cy, rad, fill);
+        border.setColor(Ui.alpha(0xFFFFFFFF, 0.7f * a));
+        c.drawCircle(cx, cy, rad - k, border);
+        infoGlyph.setColor(Ui.alpha(blend(0xFFFFFFFF, 0xFF151820, f), a));
+        c.drawText("i", cx, cy + infoDy, infoGlyph);
+    }
+
+    /** From a center line to the baseline that centers the paint's text on it. */
+    private static float middle(Paint p) {
+        Paint.FontMetrics m = p.getFontMetrics();
+        return -(m.ascent + m.descent) / 2;
+    }
+
+    private static float blend2(float a, float b, float f) {
+        return a + (b - a) * f;
     }
 
     private static int nearest(RectF[] rects, int count, float x) {
