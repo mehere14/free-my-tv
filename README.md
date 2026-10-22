@@ -108,13 +108,18 @@ This build takes your city from the TV's time zone. For your exact city and the 
 
 With your own keys (see [API keys](#rebuild-reinstall-undo-from-your-computer)) the home screen does more. Without them, it still works: the weather comes from Open-Meteo and the map from Esri.
 
-- **Search row.** The mic opens Google's voice search (the remote's own). The search box and **Ask AI** open Ask AI: your question, said or typed, answered by Gemini in large type, with its sources when *Google Search grounding* is on. (Google TV search ignores typed text handed to it on this TV, so typed questions go to Ask AI.)
+- **Search row.** The search box, its mic and **Ask AI** all open Ask AI: your question, said or typed, answered by Gemini in large type, with its sources when *Google Search grounding* is on. (On this TV, Google TV search ignores typed text handed to it, and Google's voice search doesn't start listening.)
+- **A chat.** Follow-up questions keep the conversation (**Send** or **Speak** at the bottom); **New chat** starts over.
+- **Voice.** Hold the remote's mic button to talk, or press a mic on screen and just speak. If no Bluetooth remote is paired, the screen says where to pair one.
 - **Weather.** Google Weather with a Google Maps Platform key (refreshed hourly), else Open-Meteo.
 - **Radar.** OK on the weather or radar card: the last hour of radar, animated, on Google's map (Environment Canada in Canada, NOAA in the US). Ready in about 1.5 s.
 - **Plan a route.** Say or type a place: Google Maps' matches near home, then the drive from home with live traffic, drawn on the map.
-- **Settings → Ask AI.** The Gemini key (masked but for its last 4 characters, stored encrypted), the model (`gemini-flash-latest`), grounding on or off, and *Test connection*.
+- **NASA's picture of the day** (no key). The home screen's background, kept on the TV for offline starts. Press ↓ under the shelf for **‹ 1 / 5 ›** (the last five photos) and **ⓘ** (the photo in full with NASA's description). Ask AI shows it blurred behind the chat.
+- **Free My TV → Ask AI.** The Gemini key (masked but for its last 4 characters, stored encrypted), the model (`gemini-flash-latest`), grounding on or off, and *Test connection*.
 
 The Google Maps Platform key needs these APIs on (and allowed in the key's restrictions): Map Tiles, Weather, Places (New), Routes, Geocoding. The Gemini key comes from [Google AI Studio](https://aistudio.google.com/apikey). Each has a free monthly allowance; set a budget alert in Google Cloud to be safe.
+
+**Step by step**, from getting the keys to sending them to the TV with `config.properties`: see [SONY.md](SONY.md#set-up-ask-ai-the-weather-and-the-maps). Everything this fork changes is listed there too.
 
 ## Settings
 
